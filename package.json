@@ -4,7 +4,7 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "bun run --cwd packages/verify build && bun run --cwd packages/sdk build",
+    "build": "bun run --cwd packages/verify build && bun run --cwd packages/sdk build && bun run --cwd packages/prisma build",
     "test": "bun test",
     "typecheck": "bun run build && tsc --noEmit"
   },

@@ -1,11 +1,12 @@
 # webhooks
 
-Two packages:
+Three packages:
 
 | Package | For | Notes |
 | --- | --- | --- |
 | `@thallesp/webhooks` | Producers — define events, send webhooks | direct or outbox delivery |
 | `@thallesp/webhooks-verify` | Consumers — verify incoming webhooks | zero deps, WebCrypto, runs anywhere |
+| `@thallesp/webhooks-prisma` | Outbox storage on Prisma + Postgres | `FOR UPDATE SKIP LOCKED` claiming, multi-worker safe |
 
 Wire format is [Standard Webhooks](https://www.standardwebhooks.com/): HMAC-SHA256 over
 `{id}.{timestamp}.{body}`, sent as `webhook-id` / `webhook-timestamp` / `webhook-signature`

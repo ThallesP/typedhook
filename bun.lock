@@ -11,16 +11,26 @@
         "zod": "^4.0.0",
       },
     },
+    "packages/prisma": {
+      "name": "@thallesp/webhooks-prisma",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@thallesp/webhooks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@thallesp/webhooks": "^0.1.2",
+      },
+    },
     "packages/sdk": {
       "name": "@thallesp/webhooks",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "devDependencies": {
         "@thallesp/webhooks-verify": "workspace:*",
       },
     },
     "packages/verify": {
       "name": "@thallesp/webhooks-verify",
-      "version": "0.1.0",
+      "version": "0.1.2",
     },
   },
   "packages": {
@@ -137,6 +147,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.62.4", "", { "os": "win32", "cpu": "x64" }, "sha512-zD6NdeWEByGE9QF9vCrlJ5YQB4oq9q91kPZS37Jwj5hOkvR1lTBSpsKhKDw4IJtbQ35LsTS1HD9DZYGKIshU1Q=="],
 
     "@thallesp/webhooks": ["@thallesp/webhooks@workspace:packages/sdk"],
+
+    "@thallesp/webhooks-prisma": ["@thallesp/webhooks-prisma@workspace:packages/prisma"],
 
     "@thallesp/webhooks-verify": ["@thallesp/webhooks-verify@workspace:packages/verify"],
 

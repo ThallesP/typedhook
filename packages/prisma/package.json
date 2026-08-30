@@ -1,0 +1,50 @@
+{
+  "name": "@thallesp/webhooks-prisma",
+  "version": "0.1.0",
+  "description": "Prisma (Postgres) outbox adapter for @thallesp/webhooks — FOR UPDATE SKIP LOCKED claiming, safe for concurrent workers",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "directory": "packages/prisma"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "webhooks",
+    "outbox",
+    "prisma",
+    "postgres",
+    "adapter"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@thallesp/webhooks": "^0.1.2"
+  },
+  "devDependencies": {
+    "@thallesp/webhooks": "workspace:*"
+  }
+}
