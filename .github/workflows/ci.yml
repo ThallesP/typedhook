@@ -8,9 +8,28 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      WEBHOOKS_TEST_POSTGRES_URL: postgres://postgres:pg@127.0.0.1:5432/webhooks_test
+      WEBHOOKS_TEST_MYSQL_URL: mysql://root:mysql@127.0.0.1:3306/webhooks_test
+      WEBHOOKS_TEST_MONGO_URL: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      # Adapter tests run against real databases. Started with docker run
+      # rather than services: because Mongo needs --replSet for transactions.
+      - name: Start test databases
+        run: |
+          docker run -d --name pg -e POSTGRES_PASSWORD=pg -e POSTGRES_DB=webhooks_test -p 5432:5432 postgres:17
+          docker run -d --name mysql -e MYSQL_ROOT_PASSWORD=mysql -e MYSQL_DATABASE=webhooks_test -p 3306:3306 mysql:8.4
+          docker run -d --name mongo -p 27017:27017 mongo:8.2 --replSet rs0 --bind_ip_all
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      # Both images run a temporary init server first, so wait on TCP, and on
+      # Mongo electing itself primary after rs.initiate.
+      - name: Wait for test databases
+        run: |
+          until docker exec pg pg_isready -h 127.0.0.1 -U postgres -d webhooks_test; do sleep 1; done
+          until docker exec mysql mysql -h127.0.0.1 -uroot -pmysql -e "select 1" webhooks_test; do sleep 1; done
+          until docker exec mongo mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]}).ok'; do sleep 1; done
+          until docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary' | grep -q true; do sleep 1; done
       - run: bun test

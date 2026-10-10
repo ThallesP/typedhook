@@ -7,6 +7,13 @@ Type-safe webhooks for TypeScript. Uses the [Standard Webhooks](https://www.stan
 | `@thallesp/webhooks` | Send webhooks |
 | `@thallesp/webhooks-verify` | Verify webhooks you receive (zero deps) |
 | `@thallesp/webhooks-prisma` | Store the outbox in Postgres with Prisma |
+| `@thallesp/webhooks-drizzle` | Store the outbox with Drizzle (Postgres, MySQL, SQLite) |
+| `@thallesp/webhooks-kysely` | Store the outbox with Kysely (Postgres, MySQL, SQLite) |
+| `@thallesp/webhooks-typeorm` | Store the outbox with TypeORM (Postgres, MySQL) |
+| `@thallesp/webhooks-mikro-orm` | Store the outbox with MikroORM (Postgres, MySQL, SQLite) |
+| `@thallesp/webhooks-sequelize` | Store the outbox with Sequelize (Postgres, MySQL, SQLite) |
+| `@thallesp/webhooks-knex` | Store the outbox with Knex (Postgres, MySQL, SQLite) |
+| `@thallesp/webhooks-mongodb` | Store the outbox in MongoDB |
 
 ## Sending
 
@@ -81,7 +88,20 @@ See [`packages/prisma`](packages/prisma/README.md) for the Prisma schema and opt
 
 ### Other databases
 
-Write your own adapter:
+Each adapter's README has the schema to copy, how to pass your transaction to `wh.with()`, and its options:
+
+| ORM / driver | Package |
+| --- | --- |
+| Prisma | [`packages/prisma`](packages/prisma/README.md) |
+| Drizzle | [`packages/drizzle`](packages/drizzle/README.md) |
+| Kysely | [`packages/kysely`](packages/kysely/README.md) |
+| TypeORM | [`packages/typeorm`](packages/typeorm/README.md) |
+| MikroORM | [`packages/mikro-orm`](packages/mikro-orm/README.md) |
+| Sequelize | [`packages/sequelize`](packages/sequelize/README.md) |
+| Knex | [`packages/knex`](packages/knex/README.md) |
+| MongoDB | [`packages/mongodb`](packages/mongodb/README.md) |
+
+For anything else, write your own adapter:
 
 ```ts
 interface OutboxAdapter<Tx = unknown> {
@@ -156,6 +176,16 @@ bun install
 bun test
 bun run typecheck
 ```
+
+Adapter tests run against real databases when these are set, and skip otherwise (SQLite always runs in-process):
+
+```sh
+WEBHOOKS_TEST_POSTGRES_URL=postgres://postgres:pg@127.0.0.1:5432/webhooks_test
+WEBHOOKS_TEST_MYSQL_URL=mysql://root:mysql@127.0.0.1:3306/webhooks_test
+WEBHOOKS_TEST_MONGO_URL="mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true"
+```
+
+CI starts all three; see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## License
 
