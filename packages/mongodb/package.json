@@ -1,0 +1,52 @@
+{
+  "name": "@thallesp/webhooks-mongodb",
+  "version": "0.1.0",
+  "description": "MongoDB outbox adapter for @thallesp/webhooks — atomic findOneAndUpdate claiming, safe for concurrent workers",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "directory": "packages/mongodb"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "webhooks",
+    "outbox",
+    "mongodb",
+    "mongo",
+    "adapter"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@thallesp/webhooks": "^0.1.2",
+    "mongodb": "^6.0.0 || ^7.0.0"
+  },
+  "devDependencies": {
+    "@thallesp/webhooks": "workspace:*",
+    "mongodb": "^7.0.0"
+  }
+}
