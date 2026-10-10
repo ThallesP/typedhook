@@ -2,9 +2,11 @@
   "name": "webhooks",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "bun run --cwd packages/verify build && bun run --cwd packages/sdk build && bun run --cwd packages/prisma build",
+    "build": "bun run --cwd packages/verify build && bun run --cwd packages/sdk build && bun run --cwd packages/prisma build && bun run --cwd packages/drizzle build && bun run --cwd packages/kysely build && bun run --cwd packages/typeorm build && bun run --cwd packages/mikro-orm build && bun run --cwd packages/sequelize build && bun run --cwd packages/knex build && bun run --cwd packages/mongodb build",
     "test": "bun test",
     "typecheck": "bun run build && tsc --noEmit"
   },

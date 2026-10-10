@@ -33,14 +33,16 @@ jobs:
             '.devDependencies["@thallesp/webhooks-verify"] = $v' \
             packages/sdk/package.json > pkg.tmp && mv pkg.tmp packages/sdk/package.json
           sdk_version=$(jq -r .version packages/sdk/package.json)
-          jq --arg v "$sdk_version" \
-            '.devDependencies["@thallesp/webhooks"] = $v' \
-            packages/prisma/package.json > pkg.tmp && mv pkg.tmp packages/prisma/package.json
+          for dir in packages/prisma packages/drizzle packages/kysely packages/typeorm packages/mikro-orm packages/sequelize packages/knex packages/mongodb; do
+            jq --arg v "$sdk_version" \
+              '.devDependencies["@thallesp/webhooks"] = $v' \
+              "$dir/package.json" > pkg.tmp && mv pkg.tmp "$dir/package.json"
+          done
       - name: Publish packages with unpublished versions
         run: |
           echo "npm $(npm --version), OIDC env: ${ACTIONS_ID_TOKEN_REQUEST_URL:+present}${ACTIONS_ID_TOKEN_REQUEST_URL:-missing}"
           failed=0
-          for dir in packages/sdk packages/verify packages/prisma; do
+          for dir in packages/sdk packages/verify packages/prisma packages/drizzle packages/kysely packages/typeorm packages/mikro-orm packages/sequelize packages/knex packages/mongodb; do
             name=$(jq -r .name "$dir/package.json")
             version=$(jq -r .version "$dir/package.json")
             if npm view "$name@$version" version >/dev/null 2>&1; then
