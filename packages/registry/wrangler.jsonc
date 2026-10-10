@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "typedhook-registry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "typedhook-registry",
+      // Filled in with `wrangler d1 create typedhook-registry` once deploying; local dev doesn't need it.
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // The OIDC audience pushes must be minted for. Set it to the public URL in production.
+    "REGISTRY_URL": "http://localhost:8787"
+  }
+}

@@ -1,0 +1,45 @@
+name: Publish webhook events
+description: Publish your webhook event schemas to the typedhook registry as an OpenAPI 3.1 document, authenticated with GitHub OIDC.
+author: ThallesP
+branding:
+  icon: upload-cloud
+  color: purple
+inputs:
+  events:
+    description: Path to the module exporting the event map (TypeScript or JavaScript), relative to working-directory.
+    required: true
+  export:
+    description: Name of the export holding the event map.
+    default: events
+  name:
+    description: Registry name. The owner is always the repository owner, so this publishes to owner/name.
+    required: true
+  version:
+    description: Version to publish. Defaults to the tag (v1.4.0 publishes 1.4.0) when the run is for a tag; required otherwise.
+  title:
+    description: OpenAPI info.title. Defaults to name.
+  description:
+    description: OpenAPI info.description.
+  registry-url:
+    description: Registry base URL.
+    default: http://localhost:8787
+  working-directory:
+    description: Directory that events and output-file are resolved against.
+    default: .
+  dry-run:
+    description: Build and validate the document without uploading it.
+    default: "false"
+  output-file:
+    description: Also write the document to this path, relative to working-directory.
+outputs:
+  registry:
+    description: The registry published to, as owner/name.
+  version:
+    description: The version published.
+  hash:
+    description: The document hash (sha256-<base64> over canonical JSON).
+  status:
+    description: created, unchanged (the same document was already published under this version) or dry-run.
+runs:
+  using: node24
+  main: dist/index.js
