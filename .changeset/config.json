@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "ThallesP/typedhook" }],
+  "commit": false,
+  "fixed": [
+    [
+      "@typedhook/sdk",
+      "@typedhook/verify",
+      "@typedhook/prisma",
+      "@typedhook/drizzle",
+      "@typedhook/kysely",
+      "@typedhook/typeorm",
+      "@typedhook/mikro-orm",
+      "@typedhook/sequelize",
+      "@typedhook/knex",
+      "@typedhook/mongodb"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "privatePackages": { "version": false, "tag": false },
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "bumpVersionsWithWorkspaceProtocolOnly": true,
+  "ignore": [],
+  "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
+    "onlyUpdatePeerDependentsWhenOutOfRange": true
+  }
+}

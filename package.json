@@ -1,5 +1,5 @@
 {
-  "name": "webhooks",
+  "name": "typedhook",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -8,9 +8,14 @@
   "scripts": {
     "build": "bun run --cwd packages/verify build && bun run --cwd packages/sdk build && bun run --cwd packages/prisma build && bun run --cwd packages/drizzle build && bun run --cwd packages/kysely build && bun run --cwd packages/typeorm build && bun run --cwd packages/mikro-orm build && bun run --cwd packages/sequelize build && bun run --cwd packages/knex build && bun run --cwd packages/mongodb build",
     "test": "bun test",
-    "typecheck": "bun run build && tsc --noEmit"
+    "typecheck": "bun run build && tsc --noEmit",
+    "changeset": "changeset",
+    "ci:version": "changeset version && bun install",
+    "ci:release": "bun run build && bun scripts/pin-workspace-deps.ts && changeset publish"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
     "@types/bun": "^1.2.0",
     "tsup": "^8.5.1",
     "typescript": "^5.7.0",
