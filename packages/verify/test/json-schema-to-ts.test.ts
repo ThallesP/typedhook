@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { jsonSchemaToTs } from "../src/cli/json-schema-to-ts";
 
 describe("jsonSchemaToTs", () => {
@@ -77,18 +78,33 @@ describe("jsonSchemaToTs", () => {
     expect(jsonSchemaToTs(loose)).toBe("{\n  a: string;\n  [key: string]: unknown;\n}");
   });
 
-  test("arrays and tuples", () => {
+  test("arrays", () => {
     expect(jsonSchemaToTs({ type: "array", items: { type: "string" } })).toBe("string[]");
     expect(
       jsonSchemaToTs({ type: "array", items: { anyOf: [{ type: "string" }, { type: "number" }] } }),
     ).toBe("(string | number)[]");
     expect(jsonSchemaToTs({ type: "array" })).toBe("unknown[]");
-    expect(jsonSchemaToTs({ type: "array", prefixItems: [{ type: "string" }, { type: "number" }] })).toBe(
-      "[string, number]",
+  });
+
+  test("a bare prefixItems is a fixed tuple; explicit minItems, maxItems and items loosen it", () => {
+    const pair = { type: "array", prefixItems: [{ type: "string" }, { type: "number" }] };
+    expect(jsonSchemaToTs(pair)).toBe("[string, number]");
+    expect(jsonSchemaToTs({ ...pair, minItems: 2, maxItems: 2 })).toBe("[string, number]");
+    expect(jsonSchemaToTs({ ...pair, minItems: 1, items: false })).toBe("[string, number?]");
+    expect(jsonSchemaToTs({ ...pair, minItems: 1, maxItems: 1 })).toBe("[string]");
+    expect(jsonSchemaToTs({ ...pair, minItems: 2, items: { type: "boolean" } })).toBe(
+      "[string, number, ...boolean[]]",
     );
-    expect(
-      jsonSchemaToTs({ type: "array", prefixItems: [{ type: "string" }], items: { type: "boolean" } }),
-    ).toBe("[string, ...boolean[]]");
+    const union = { anyOf: [{ type: "string" }, { type: "null" }] };
+    expect(jsonSchemaToTs({ type: "array", prefixItems: [union], minItems: 0 })).toBe("[(string | null)?]");
+    expect(jsonSchemaToTs({ type: "array", prefixItems: [] })).toBe("[]");
+    expect(jsonSchemaToTs({ type: "array", prefixItems: [], items: { type: "string" } })).toBe("string[]");
+  });
+
+  test("tuples as zod emits them, with no minItems", () => {
+    expect(jsonSchemaToTs(z.toJSONSchema(z.tuple([z.string(), z.number()])))).toBe("[string, number]");
+    const rest = z.tuple([z.string()], z.boolean());
+    expect(jsonSchemaToTs(z.toJSONSchema(rest))).toBe("[string, ...boolean[]]");
   });
 
   test("$ref uses refName, and unnamed refs become unknown", () => {
@@ -106,6 +122,11 @@ describe("jsonSchemaToTs", () => {
     expect(jsonSchemaToTs({ not: { type: "string" } })).toBe("unknown");
     expect(jsonSchemaToTs({ type: "bigint" })).toBe("unknown");
     expect(jsonSchemaToTs("nonsense")).toBe("unknown");
+  });
+
+  test("a property named __proto__ is kept", () => {
+    const schema = JSON.parse('{"type":"object","properties":{"__proto__":{"type":"string"}},"required":["__proto__"]}');
+    expect(jsonSchemaToTs(schema)).toBe("{\n  __proto__: string;\n}");
   });
 
   test("type names that are Object.prototype members are unknown", () => {

@@ -41,6 +41,17 @@ export function eventHelperPicksOneEvent(paid: BillingEvent<"invoice.paid">) {
   return at;
 }
 
+export function tuplesAreFixedUnlessTheyHaveARest(): BillingEvent<"usage.recorded">["data"][] {
+  return [
+    { meter: ["api-calls", 3], readings: ["2026-10-10"] },
+    { meter: ["api-calls", 3], readings: ["2026-10-10", 1, 2, 3] },
+    // @ts-expect-error the first meter item is a string
+    { meter: [3, 3], readings: ["2026-10-10"] },
+    // @ts-expect-error meter is a fixed pair
+    { meter: ["api-calls"], readings: ["2026-10-10"] },
+  ];
+}
+
 export function emailIsOptional(updated: BillingEvent<"customer.updated">) {
   // @ts-expect-error email is optional, so it may be undefined
   const email: string = updated.data.email;

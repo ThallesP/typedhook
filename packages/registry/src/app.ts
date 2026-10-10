@@ -1,11 +1,14 @@
+import { canonicalJson, hashText } from "@typedhook/verify/registry";
 import { Elysia, type ElysiaAdapter } from "elysia";
 import { maxSatisfying, valid, validRange } from "semver";
 import type { VerifyGithubToken } from "./github-oidc";
-import { canonicalJson, hashCanonical } from "./hash";
 import { isRecord } from "./is-record";
 import type { Store } from "./store";
 
 const MAX_DOCUMENT_BYTES = 1_000_000;
+// Hashing and type generation recurse into the document, so a 1 MB body of
+// nested arrays would overflow the stack.
+const MAX_DEPTH = 256;
 const REGISTRY_NAME = /^[a-z0-9][a-z0-9._-]{0,99}$/;
 // Other events (pull_request, pull_request_review, issue_comment, workflow_run...)
 // can run code from whoever opened a pull request.
@@ -20,13 +23,14 @@ export interface AppOptions {
 }
 
 type DocumentResult =
-  | { ok: true; canonical: string }
+  | { ok: true; text: string; canonical: string }
   | { ok: false; status: 400 | 413; error: string };
 
 export function createApp({ store, verifyGithubToken, adapter }: AppOptions) {
   return new Elysia({ adapter })
-    .onError(({ code, status }) => {
+    .onError(({ code, error, status }) => {
       if (code === "NOT_FOUND") return status(404, { error: "not found" });
+      console.error(error);
       return status(500, { error: "internal error" });
     })
     .put(
@@ -56,7 +60,7 @@ export function createApp({ store, verifyGithubToken, adapter }: AppOptions) {
 
         const body = await readDocument(request);
         if (!body.ok) return status(body.status, { error: body.error });
-        const hash = await hashCanonical(body.canonical);
+        const hash = await hashText(body.canonical);
 
         // Logins can be renamed and then taken by someone else; the numeric id can't.
         const boundOwnerId = await store.claimOwner(owner, identity.repositoryOwnerId);
@@ -64,7 +68,8 @@ export function createApp({ store, verifyGithubToken, adapter }: AppOptions) {
           return status(403, { error: `${owner} belongs to a different account` });
         }
 
-        if (await store.insertVersion({ owner, name, version, hash, document: body.canonical })) {
+        // Store the body as sent so the sender's property order comes back on resolve.
+        if (await store.insertVersion({ owner, name, version, hash, document: body.text })) {
           return status(201, { status: "created", version, hash });
         }
         const existing = await store.findVersion(owner, name, version);
@@ -111,12 +116,15 @@ function bearerToken(header: string | null): string | null {
 }
 
 async function readDocument(request: Request): Promise<DocumentResult> {
-  const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > MAX_DOCUMENT_BYTES) {
-    return { ok: false, status: 413, error: "document is larger than 1 MB" };
-  }
-  const document = parseJson(bytes);
+  const bytes = await readBody(request);
+  if (!bytes) return { ok: false, status: 413, error: "document is larger than 1 MB" };
+  const text = decodeUtf8(bytes);
+  if (text === null) return { ok: false, status: 400, error: "body must be UTF-8" };
+  const document = parseJson(text);
   if (!isRecord(document)) return { ok: false, status: 400, error: "body must be a JSON object" };
+  if (nestedDeeperThan(document, MAX_DEPTH)) {
+    return { ok: false, status: 400, error: `document is nested deeper than ${MAX_DEPTH} levels` };
+  }
   const { openapi, webhooks } = document;
   if (typeof openapi !== "string" || !/^3\.1\.\d+$/.test(openapi)) {
     return { ok: false, status: 400, error: "openapi must be 3.1.x" };
@@ -129,13 +137,59 @@ async function readDocument(request: Request): Promise<DocumentResult> {
   if (encoder.encode(canonical).byteLength > MAX_DOCUMENT_BYTES) {
     return { ok: false, status: 413, error: "canonical document is larger than 1 MB" };
   }
-  return { ok: true, canonical };
+  return { ok: true, text, canonical };
 }
 
-function parseJson(bytes: ArrayBuffer): unknown {
+/** Null once the body passes the size limit, without reading the rest of it. */
+async function readBody(request: Request): Promise<Uint8Array | null> {
+  if (Number(request.headers.get("content-length")) > MAX_DOCUMENT_BYTES) return null;
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_DOCUMENT_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+function decodeUtf8(bytes: Uint8Array): string | null {
   try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
   } catch {
     return undefined;
   }
+}
+
+/** Walks with an explicit stack, since recursing is what the limit guards against. */
+function nestedDeeperThan(value: unknown, limit: number): boolean {
+  const stack: Array<[unknown, number]> = [[value, 1]];
+  for (let next = stack.pop(); next; next = stack.pop()) {
+    const [current, depth] = next;
+    if (typeof current !== "object" || current === null) continue;
+    if (depth > limit) return true;
+    for (const child of Object.values(current)) stack.push([child, depth + 1]);
+  }
+  return false;
 }

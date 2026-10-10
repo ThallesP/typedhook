@@ -82,17 +82,35 @@ function objectType(schema: Record<string, unknown>, depth: number, refName: Ref
   return single(`{\n${lines.join("\n")}\n${"  ".repeat(depth)}}`);
 }
 
+/**
+ * Strict JSON Schema makes every prefixItems entry optional and the tuple open
+ * unless minItems/items say otherwise, but zod emits plain tuples that way
+ * (and `z.tuple([a, b.optional()])` identically). Like other TS generators we
+ * read a bare prefixItems as a fixed tuple and honor explicit minItems,
+ * maxItems and items.
+ */
 function arrayType(schema: Record<string, unknown>, depth: number, refName: RefName): TsType {
-  const { prefixItems, items } = schema;
-  if (Array.isArray(prefixItems)) {
-    const members = prefixItems.map((item) => convert(item, depth, refName).text);
-    if (items !== undefined && items !== false) {
-      members.push(`...${arrayOf(convert(items, depth, refName))}`);
-    }
+  const { prefixItems, items, minItems, maxItems } = schema;
+  if (!Array.isArray(prefixItems)) {
+    if (items === undefined) return single("unknown[]");
+    return single(arrayOf(convert(items, depth, refName)));
+  }
+
+  const required = typeof minItems === "number" ? minItems : prefixItems.length;
+  const max = typeof maxItems === "number" ? maxItems : Number.POSITIVE_INFINITY;
+  const members = prefixItems
+    .slice(0, Math.max(0, max))
+    .map((item, index) => {
+      const member = convert(item, depth, refName);
+      if (index < required) return member.text;
+      return member.kind === "single" ? `${member.text}?` : `(${member.text})?`;
+    });
+  if (items === undefined || items === false || max <= prefixItems.length) {
     return single(`[${members.join(", ")}]`);
   }
-  if (items === undefined) return single("unknown[]");
-  return single(arrayOf(convert(items, depth, refName)));
+  const rest = arrayOf(convert(items, depth, refName));
+  if (members.length === 0) return single(rest);
+  return single(`[${members.join(", ")}, ...${rest}]`);
 }
 
 function arrayOf(item: TsType): string {

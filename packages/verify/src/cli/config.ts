@@ -1,9 +1,7 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isRecord } from "./is-record";
-
-// Replaced with the hosted registry's URL once it's deployed.
-export const DEFAULT_REGISTRY_URL = "http://localhost:8787";
+import { DEFAULT_REGISTRY_URL } from "./registry-client";
 
 const DEFAULT_OUT = "src/webhooks";
 

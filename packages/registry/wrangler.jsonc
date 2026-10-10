@@ -13,7 +13,8 @@
     }
   ],
   "vars": {
-    // The OIDC audience pushes must be minted for. Set it to the public URL in production.
-    "REGISTRY_URL": "http://localhost:8787"
+    // The OIDC audience pushes must be minted for: the registry's public URL. Left empty
+    // so a deploy without it fails at startup; `bun run dev` passes localhost instead.
+    "REGISTRY_URL": ""
   }
 }

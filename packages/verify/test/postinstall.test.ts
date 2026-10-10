@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { withPostinstall } from "../src/cli/postinstall";
+import { hasDependency, withPostinstall } from "../src/cli/postinstall";
 
 describe("withPostinstall", () => {
   test("adds scripts with the postinstall when there are none", () => {
@@ -35,5 +35,15 @@ describe("withPostinstall", () => {
     expect(withPostinstall('{\n\t"name": "app"\n}\n')).toBe(
       '{\n\t"name": "app",\n\t"scripts": {\n\t\t"postinstall": "typedhook pull"\n\t}\n}\n',
     );
+  });
+});
+
+describe("hasDependency", () => {
+  test("only counts dependencies, which installs without devDependencies still get", () => {
+    const verify = "@typedhook/verify";
+    expect(hasDependency(JSON.stringify({ dependencies: { [verify]: "^0.2.0" } }), verify)).toBe(true);
+    expect(hasDependency(JSON.stringify({ devDependencies: { [verify]: "^0.2.0" } }), verify)).toBe(false);
+    expect(hasDependency('{ "name": "app" }', verify)).toBe(false);
+    expect(hasDependency('{ "dependencies": {} }', "toString")).toBe(false);
   });
 });

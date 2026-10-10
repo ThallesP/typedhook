@@ -12,7 +12,7 @@ import {
   writeText,
 } from "../config";
 import { generatedFiles, writeGeneratedFile } from "../generated-file";
-import { withPostinstall } from "../postinstall";
+import { hasDependency, withPostinstall } from "../postinstall";
 import { type RegistryVersion, parseRegistry, resolveRegistry } from "../registry-client";
 
 export type AddOptions = {
@@ -62,6 +62,7 @@ export async function add(
   await writeConfig(root, config);
   await writeLock(root, lock);
   await addPostinstall(root, log);
+  log(`commit typedhook.json, typedhook.lock and ${config.out} so installs work offline`);
 }
 
 /** `owner/name` resolves `latest`, saved as `^<version>`. */
@@ -82,7 +83,13 @@ async function addPostinstall(root: string, log: (line: string) => void): Promis
     return;
   }
   const next = withPostinstall(text);
-  if (next === null) return;
-  await writeText(path, next);
-  log("added `typedhook pull` to the postinstall script in package.json");
+  if (next !== null) {
+    await writeText(path, next);
+    log("added `typedhook pull` to the postinstall script in package.json");
+  }
+  if (!hasDependency(text, "@typedhook/verify")) {
+    log(
+      "warning: @typedhook/verify isn't in dependencies, so the postinstall fails on installs without devDependencies (npm ci --omit=dev); move it to dependencies",
+    );
+  }
 }

@@ -1,3 +1,4 @@
+import { componentRef, unescapePointerToken } from "./component-ref";
 import { isRecord } from "./is-record";
 import { isStandardJSONSchema } from "./standard-json-schema";
 
@@ -15,12 +16,13 @@ export type OpenAPIDocument = {
  * that @typedhook/sdk sends.
  */
 export function toOpenAPI(events: Record<string, unknown>, info: OpenAPIInfo): OpenAPIDocument {
-  const webhooks: Record<string, unknown> = {};
-  const schemas: Record<string, unknown> = {};
+  // Maps until the end: assigning a `__proto__` key on an object sets its prototype instead.
+  const webhooks = new Map<string, unknown>();
+  const schemas = new Map<string, unknown>();
   const owners = new Map<string, string>();
   for (const name of Object.keys(events).sort()) {
     const hoisted = hoistDefs(name, toJsonSchema(name, events[name]));
-    for (const [key, schema] of Object.entries(hoisted.schemas)) {
+    for (const [key, schema] of hoisted.schemas) {
       // Event `a` with def `b.c` and event `a.b` with def `c` both hoist to `a.b.c`.
       const owner = owners.get(key);
       if (owner !== undefined) {
@@ -29,9 +31,9 @@ export function toOpenAPI(events: Record<string, unknown>, info: OpenAPIInfo): O
         );
       }
       owners.set(key, name);
-      schemas[key] = schema;
+      schemas.set(key, schema);
     }
-    webhooks[name] = {
+    webhooks.set(name, {
       post: {
         operationId: name,
         requestBody: {
@@ -40,11 +42,11 @@ export function toOpenAPI(events: Record<string, unknown>, info: OpenAPIInfo): O
         },
         responses: { "2XX": { description: "Return any 2XX status to acknowledge the event" } },
       },
-    };
+    });
   }
 
-  const document: OpenAPIDocument = { openapi: "3.1.0", info, webhooks };
-  if (Object.keys(schemas).length > 0) document.components = { schemas };
+  const document: OpenAPIDocument = { openapi: "3.1.0", info, webhooks: Object.fromEntries(webhooks) };
+  if (schemas.size > 0) document.components = { schemas: Object.fromEntries(schemas) };
   return document;
 }
 
@@ -79,7 +81,7 @@ function toJsonSchema(name: string, schema: unknown): Record<string, unknown> {
 function hoistDefs(
   name: string,
   jsonSchema: Record<string, unknown>,
-): { data: unknown; schemas: Record<string, unknown> } {
+): { data: unknown; schemas: Map<string, unknown> } {
   // $schema is dropped: OpenAPI 3.1 already defaults to the 2020-12 dialect.
   const { $schema, $defs, ...root } = jsonSchema;
   let isRecursive = false;
@@ -89,33 +91,32 @@ function hoistDefs(
         isRecursive = true;
         return componentRef(name);
       }
-      if (ref.startsWith("#/$defs/")) return componentRef(`${name}.${ref.slice("#/$defs/".length)}`);
-      return ref;
+      if (!ref.startsWith("#/$defs/")) return ref;
+      // A ref may point inside a def (`#/$defs/a/properties/b`); only the def name is renamed.
+      const [defToken = "", ...path] = ref.slice("#/$defs/".length).split("/");
+      return [componentRef(`${name}.${unescapePointerToken(defToken)}`), ...path].join("/");
     });
   }
 
-  const schemas: Record<string, unknown> = {};
+  const schemas = new Map<string, unknown>();
   for (const [defName, def] of Object.entries(isRecord($defs) ? $defs : {})) {
-    schemas[`${name}.${defName}`] = rewrite(def);
+    schemas.set(`${name}.${defName}`, rewrite(def));
   }
   const data = rewrite(root);
   if (!isRecursive) return { data, schemas };
-  schemas[name] = data;
+  schemas.set(name, data);
   return { data: { $ref: componentRef(name) }, schemas };
 }
 
 function mapRefs(value: unknown, mapRef: (ref: string) => string): unknown {
   if (Array.isArray(value)) return value.map((item) => mapRefs(item, mapRef));
   if (!isRecord(value)) return value;
-  const mapped: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    mapped[key] = key === "$ref" && typeof child === "string" ? mapRef(child) : mapRefs(child, mapRef);
-  }
-  return mapped;
-}
-
-function componentRef(key: string): string {
-  return `#/components/schemas/${key}`;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      key === "$ref" && typeof child === "string" ? mapRef(child) : mapRefs(child, mapRef),
+    ]),
+  );
 }
 
 function envelope(name: string, data: unknown): Record<string, unknown> {

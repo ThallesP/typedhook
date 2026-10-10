@@ -5,9 +5,10 @@ export {
   generateTypes,
   readGeneratedHeader,
 } from "./generate";
-export { hashDocument } from "./hash";
+export { canonicalJson, hashDocument, hashText } from "./hash";
 export { type OpenAPIDocument, type OpenAPIInfo, toOpenAPI } from "./openapi";
 export {
+  DEFAULT_REGISTRY_URL,
   type FetchImpl,
   type PushDocumentOptions,
   type PushResult,

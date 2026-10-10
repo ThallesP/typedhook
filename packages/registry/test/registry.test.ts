@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { hashDocument } from "@typedhook/verify/registry";
 import { generateKeyPair } from "jose";
 import { createApp } from "../src/app";
 import { githubVerifier } from "../src/github-oidc";
-import { canonicalJson, hashDocument } from "../src/hash";
 import { d1Store } from "../src/store";
 import { memoryD1 } from "./d1";
 import { AUDIENCE, type TokenOptions, keySet, signGithubToken as sign } from "./github-token";
@@ -25,19 +25,37 @@ beforeEach(() => {
 async function push(
   path: string,
   body: unknown,
-  { token, raw }: { token?: string | null; raw?: string } = {},
+  {
+    token,
+    raw,
+    headers = {},
+  }: { token?: string | null; raw?: string | ReadableStream<Uint8Array>; headers?: Record<string, string> } = {},
 ) {
   const bearer = token === undefined ? await sign() : token;
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (bearer) headers.authorization = `Bearer ${bearer}`;
+  const allHeaders: Record<string, string> = { "content-type": "application/json", ...headers };
+  if (bearer) allHeaders.authorization = `Bearer ${bearer}`;
   const response = await app.handle(
     new Request(`http://localhost/registries/${path}`, {
       method: "PUT",
-      headers,
+      headers: allHeaders,
       body: raw ?? JSON.stringify(body),
     }),
   );
   return { status: response.status, body: await response.json() };
+}
+
+/** A body of `total` spaces sent in 64 KB chunks, counting how much was read. */
+function spaces(total: number) {
+  const chunk = new TextEncoder().encode(" ".repeat(64 * 1024));
+  const counter = { read: 0 };
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (counter.read >= total) return controller.close();
+      counter.read += chunk.byteLength;
+      controller.enqueue(chunk);
+    },
+  });
+  return { stream, counter };
 }
 
 async function resolve(path: string) {
@@ -201,6 +219,70 @@ describe("PUT /registries/:owner/:name/versions/:version", () => {
     expect(result.status).toBe(413);
   });
 
+  test("stops reading a streamed body once it passes 1 MB", async () => {
+    const total = 10_000_000;
+    const { stream, counter } = spaces(total);
+    const result = await push("acme/billing/versions/1.0.0", null, { raw: stream });
+    expect(result.status).toBe(413);
+    expect(counter.read).toBeGreaterThan(1_000_000);
+    expect(counter.read).toBeLessThan(2_000_000);
+  });
+
+  test("rejects a Content-Length over 1 MB without reading the body", async () => {
+    const { stream, counter } = spaces(2_000_000);
+    const result = await push("acme/billing/versions/1.0.0", null, {
+      raw: stream,
+      headers: { "content-length": "2000000" },
+    });
+    expect(result.status).toBe(413);
+    expect(counter.read).toBeLessThan(1_000_000);
+  });
+
+  test("rejects documents nested deeper than 256 levels", async () => {
+    // A small body, but deep enough to overflow the stack when hashed.
+    const depth = 100_000;
+    const raw = JSON.stringify(openapi({ deep: "X" })).replace(
+      '"X"',
+      `${"[".repeat(depth)}${"]".repeat(depth)}`,
+    );
+    const result = await push("acme/billing/versions/1.0.0", null, { raw });
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: "document is nested deeper than 256 levels" });
+  });
+
+  test("accepts documents nested exactly 256 levels deep", async () => {
+    // The document and webhooks objects are the first two levels.
+    const raw = JSON.stringify(openapi({ deep: "X" })).replace(
+      '"X"',
+      `${"[".repeat(254)}${"]".repeat(254)}`,
+    );
+    const result = await push("acme/billing/versions/1.0.0", null, { raw });
+    expect(result.status).toBe(201);
+  });
+
+  test("accepts a registry URL with a trailing slash", async () => {
+    app = createApp({
+      store: d1Store(memoryD1()),
+      verifyGithubToken: githubVerifier({ audience: `${AUDIENCE}/`, keySet }),
+    });
+    const result = await push("acme/billing/versions/1.0.0", openapi());
+    expect(result.status).toBe(201);
+  });
+
+  test("logs unexpected errors and hides them from the client", async () => {
+    const failure = new Error("database is down");
+    const store = d1Store(memoryD1());
+    app = createApp({
+      store: { ...store, claimOwner: () => Promise.reject(failure) },
+      verifyGithubToken: githubVerifier({ audience: AUDIENCE, keySet }),
+    });
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    const result = await push("acme/billing/versions/1.0.0", openapi());
+    expect(logged).toHaveBeenCalledWith(failure);
+    logged.mockRestore();
+    expect(result).toEqual({ status: 500, body: { error: "internal error" } });
+  });
+
   test("a rejected push doesn't claim the owner", async () => {
     await push("acme/billing/versions/1.0.0", { openapi: "3.0.0" });
     const token = await sign({ claims: { repository_owner_id: "2002" } });
@@ -239,6 +321,20 @@ describe("GET /registries/:owner/:name/:range", () => {
       hash: await hashDocument(document),
       document,
     });
+  });
+
+  test("returns the document in the sender's property order", async () => {
+    const reordered = {
+      webhooks: { "order.paid": { post: {} } },
+      info: { version: "1.0.0", title: "Acme" },
+      openapi: "3.1.0",
+    };
+    await push("acme/billing/versions/3.0.0", reordered);
+    const result = await resolve("acme/billing/3.0.0");
+    const hash = await hashDocument(openapi({ "order.paid": { post: {} } }));
+    expect(JSON.stringify(result.body)).toBe(
+      JSON.stringify({ version: "3.0.0", hash, document: reordered }),
+    );
   });
 
   test("a range without a prerelease never resolves to one", async () => {
@@ -292,12 +388,4 @@ test("unknown routes return JSON 404", async () => {
   const response = await app.handle(new Request("http://localhost/nope"));
   expect(response.status).toBe(404);
   expect(await response.json()).toEqual({ error: "not found" });
-});
-
-describe("canonicalJson", () => {
-  test("sorts keys at every depth and keeps array order", () => {
-    expect(canonicalJson({ b: [{ d: 1, c: 2 }, 3], a: { "10": null, "2": true } })).toBe(
-      '{"a":{"10":null,"2":true},"b":[{"c":2,"d":1},3]}',
-    );
-  });
 });

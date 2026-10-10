@@ -74,7 +74,14 @@ describe("webhooks CLI against the registry", () => {
   });
 
   test("add writes the config, lock, generated file and postinstall", async () => {
-    await add(["acme/billing"], { cwd: project, env: env(), log });
+    const lines: string[] = [];
+    await add(["acme/billing"], { cwd: project, env: env(), log: (line) => lines.push(line) });
+    expect(lines).toEqual([
+      "added acme/billing@^1.0.0 (1.0.0) → src/webhooks/billing.ts",
+      "added `typedhook pull` to the postinstall script in package.json",
+      expect.stringContaining("warning: @typedhook/verify isn't in dependencies"),
+      "commit typedhook.json, typedhook.lock and src/webhooks so installs work offline",
+    ]);
 
     expect(await readJson("typedhook.json")).toEqual({
       out: "src/webhooks",
@@ -83,8 +90,8 @@ describe("webhooks CLI against the registry", () => {
     expect(await readJson("typedhook.lock")).toEqual({
       "acme/billing": { range: "^1.0.0", version: "1.0.0", hash: expect.stringMatching(/^sha256-/) },
     });
-    // The registry stores documents as canonical JSON, so properties come back sorted.
-    const document = JSON.parse(canonicalJson(billingDocument));
+    // The registry returns the document as pushed, in the sender's property order.
+    const document = JSON.parse(JSON.stringify(billingDocument));
     const hash = await hashDocument(document);
     expect(await read("src/webhooks/billing.ts")).toBe(
       await generateTypes({ registry: "acme/billing", version: "1.0.0", hash, document }),

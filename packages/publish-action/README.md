@@ -30,13 +30,15 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: ThallesP/typedhook/packages/publish-action@main
+      - uses: ThallesP/typedhook/packages/publish-action@v1
         with:
           events: src/webhooks/events.ts
           name: billing
           title: Billing
           description: Events sent by the billing service
 ```
+
+Pin a release tag or a commit SHA; `@v1` above stands for the release you pick.
 
 Pushing the tag `v1.4.0` publishes `acme/billing@1.4.0`, where `acme` is the repository owner. Install dependencies first: the events module is loaded with its imports (zod and your own files), so they have to resolve. TypeScript, extensionless relative imports, ESM and CJS all work.
 
@@ -69,7 +71,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: ThallesP/typedhook/packages/publish-action@main
+      - uses: ThallesP/typedhook/packages/publish-action@v1
         with:
           events: src/webhooks/events.ts
           name: billing
@@ -92,7 +94,7 @@ jobs:
 | `version` | the tag | Version to publish. On a tag run it defaults to the tag without a leading `v` (`v1.4.0` → `1.4.0`); anywhere else it's required |
 | `title` | `name` | OpenAPI `info.title` |
 | `description` | | OpenAPI `info.description` |
-| `registry-url` | `http://localhost:8787` | Registry base URL. Placeholder until the hosted registry is deployed, when the default becomes its URL |
+| `registry-url` | the hosted registry | Registry base URL. The default is `http://localhost:8787` until the hosted registry is deployed |
 | `working-directory` | `.` | Directory that `events` and `output-file` are resolved against |
 | `dry-run` | `false` | Build and validate the document without uploading it |
 | `output-file` | | Also write the document (pretty JSON) to this path |

@@ -6,6 +6,15 @@ import { billingDocument } from "./fixtures/billing";
 
 const info = { title: "Test", version: "1.0.0" };
 
+function schemaWithJson(json: unknown) {
+  return { "~standard": { jsonSchema: { output: () => json } } };
+}
+
+// JSON.parse makes `__proto__` an own key, as it is in documents off the wire.
+const protoObject = JSON.parse(
+  '{"type":"object","properties":{"__proto__":{"type":"string"}},"required":["__proto__"]}',
+);
+
 describe("toOpenAPI", () => {
   test("wraps each event's schema in the webhooks envelope", () => {
     const document = toOpenAPI(
@@ -72,6 +81,43 @@ describe("toOpenAPI", () => {
     expect(billingDocument.components?.schemas["price.created.__schema0"]).toMatchObject({
       properties: { next: { $ref: "#/components/schemas/price.created.__schema0" } },
     });
+  });
+
+  test("escapes / and ~ in component refs, and decodes them in $defs refs", () => {
+    const foo = schemaWithJson({
+      $defs: { "a/b": { type: "array", items: { type: "string" } }, "c~d": { type: "number" } },
+      type: "object",
+      properties: {
+        ab: { $ref: "#/$defs/a~1b" },
+        cd: { $ref: "#/$defs/c~0d" },
+        item: { $ref: "#/$defs/a~1b/items" },
+      },
+    });
+    const document = toOpenAPI({ foo }, info);
+    expect(Object.keys(document.components?.schemas ?? {})).toEqual(["foo.a/b", "foo.c~d"]);
+    expect(JSON.stringify(document.webhooks.foo)).toContain(
+      '"properties":{"ab":{"$ref":"#/components/schemas/foo.a~1b"},"cd":{"$ref":"#/components/schemas/foo.c~0d"},"item":{"$ref":"#/components/schemas/foo.a~1b/items"}}',
+    );
+  });
+
+  test("escapes a recursive event's name in its self-reference", () => {
+    const tree = schemaWithJson({ type: "object", properties: { child: { $ref: "#" } } });
+    const document = toOpenAPI({ "a/b": tree }, info);
+    expect(document.components?.schemas["a/b"]).toMatchObject({
+      properties: { child: { $ref: "#/components/schemas/a~1b" } },
+    });
+    expect(JSON.stringify(document.webhooks["a/b"])).toContain('"data":{"$ref":"#/components/schemas/a~1b"}');
+  });
+
+  test("keeps events, properties and components named __proto__", () => {
+    const events = Object.fromEntries([["__proto__", schemaWithJson(protoObject)]]);
+    const document = toOpenAPI(events, info);
+    expect(Object.keys(document.webhooks)).toEqual(["__proto__"]);
+    expect(JSON.stringify(document.webhooks)).toContain('"data":{"type":"object","properties":{"__proto__":');
+
+    const recursive = { ...protoObject, properties: { ...protoObject.properties, self: { $ref: "#" } } };
+    const hoisted = toOpenAPI(Object.fromEntries([["__proto__", schemaWithJson(recursive)]]), info);
+    expect(Object.keys(hoisted.components?.schemas ?? {})).toEqual(["__proto__"]);
   });
 
   test("returns plain JSON, so it hashes like the document the registry receives", async () => {

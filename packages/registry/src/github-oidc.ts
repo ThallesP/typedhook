@@ -21,12 +21,14 @@ export function githubVerifier({
   issuer?: string;
   keySet?: JWTVerifyGetKey;
 }): VerifyGithubToken {
+  // Clients strip trailing slashes from the registry URL before minting tokens for it.
+  const expectedAudience = audience.replace(/\/+$/, "");
   return async (token) => {
     try {
       // Pinning the algorithm stops a token from choosing how it gets verified.
       const { payload } = await jwtVerify(token, keySet, {
         issuer,
-        audience,
+        audience: expectedAudience,
         algorithms: ["RS256"],
         requiredClaims: ["exp"],
       });

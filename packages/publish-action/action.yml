@@ -21,8 +21,7 @@ inputs:
   description:
     description: OpenAPI info.description.
   registry-url:
-    description: Registry base URL.
-    default: http://localhost:8787
+    description: Registry base URL. Defaults to the hosted typedhook registry.
   working-directory:
     description: Directory that events and output-file are resolved against.
     default: .

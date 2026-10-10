@@ -1,4 +1,4 @@
-import { isStrictSemver, parseRegistry } from "@typedhook/verify/registry";
+import { DEFAULT_REGISTRY_URL, isStrictSemver, parseRegistry } from "@typedhook/verify/registry";
 
 export type Inputs = {
   events: string;
@@ -42,7 +42,7 @@ export function parseInputs(getInput: GetInput, env: Env): Inputs {
     description: getInput("description"),
     // Normalized once: it's both the OIDC audience and the base URL, and the
     // registry only accepts tokens whose audience is its exact URL.
-    registryUrl: (getInput("registry-url") || "http://localhost:8787").replace(/\/+$/, ""),
+    registryUrl: (getInput("registry-url") || DEFAULT_REGISTRY_URL).replace(/\/+$/, ""),
     workingDirectory: getInput("working-directory") || ".",
     isDryRun: parseBoolean(getInput("dry-run"), "dry-run"),
     outputFile: getInput("output-file"),

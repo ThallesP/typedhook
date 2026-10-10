@@ -6,6 +6,8 @@ CREATE TABLE owners (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- document is the body as pushed, keeping the sender's property order; hash is
+-- over its canonical JSON, so reordered keys still count as the same version.
 CREATE TABLE versions (
   owner TEXT NOT NULL REFERENCES owners (login),
   name TEXT NOT NULL,

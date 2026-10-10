@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DEFAULT_REGISTRY_URL,
   findPackageRoot,
   findProject,
   readConfig,
@@ -12,6 +11,7 @@ import {
   writeConfig,
   writeLock,
 } from "../src/cli/config";
+import { DEFAULT_REGISTRY_URL } from "../src/cli/registry-client";
 
 let dir: string;
 

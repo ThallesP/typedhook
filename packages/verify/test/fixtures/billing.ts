@@ -40,6 +40,10 @@ export const billingEvents = {
   }),
   "category.created": Category,
   "price.created": z.object({ priceId: z.string(), tiers: PriceTier }),
+  "usage.recorded": z.object({
+    meter: z.tuple([z.string(), z.number()]),
+    readings: z.tuple([z.string()], z.number()),
+  }),
 };
 
 export const billingDocument = toOpenAPI(billingEvents, { title: "Billing", version: "1.0.0" });

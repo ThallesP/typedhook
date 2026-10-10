@@ -38,6 +38,8 @@ npx typedhook add acme/billing
 
 This writes `typedhook.json`, `typedhook.lock` and `src/webhooks/billing.ts`, and adds
 `typedhook pull` to your `postinstall`, so the types are regenerated on every install.
+Commit all three so installs work offline, and keep `@typedhook/verify` in `dependencies`:
+the postinstall needs it at install time, so `npm ci --omit=dev` fails with it in `devDependencies`.
 
 ```ts
 import type { BillingEvents } from "./webhooks/billing";

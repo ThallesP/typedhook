@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_REGISTRY_URL } from "@typedhook/verify/registry";
 import { type Env, parseInputs } from "../src/inputs";
 
 const env: Env = { GITHUB_REPOSITORY_OWNER: "acme", GITHUB_REF: "refs/tags/v1.4.0" };
@@ -16,7 +17,7 @@ describe("parseInputs", () => {
       version: "1.4.0",
       title: "billing",
       description: "",
-      registryUrl: "http://localhost:8787",
+      registryUrl: DEFAULT_REGISTRY_URL,
       workingDirectory: ".",
       isDryRun: false,
       outputFile: "",

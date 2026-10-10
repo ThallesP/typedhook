@@ -111,6 +111,7 @@
       "name": "@typedhook/registry",
       "version": "0.0.0",
       "dependencies": {
+        "@typedhook/verify": "workspace:*",
         "elysia": "^1.4.30",
         "jose": "^6.2.12",
         "semver": "^7.8.5",

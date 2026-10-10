@@ -12,6 +12,10 @@ function withComponents(schemas: Record<string, unknown>) {
   return { ...emptyDocument, components: { schemas } };
 }
 
+function schemaWithJson(json: unknown) {
+  return { "~standard": { jsonSchema: { output: () => json } } };
+}
+
 function aliasNames(text: string): string[] {
   return [...text.matchAll(/^export type (\w+)[ <]/gm)].flatMap((match) => (match[1] ? [match[1]] : []));
 }
@@ -127,6 +131,67 @@ describe("generateTypes", () => {
     expect(text).toContain("export type ShopAB = ShopAB2[];");
     expect(text).toContain("export type ShopAB2 = ShopAB;");
     expect(text).toContain("export type ShopOther = unknown;");
+  });
+
+  test("resolves component refs with escaped / and ~", async () => {
+    const text = await generateTypes({
+      registry: "acme/shop",
+      version: "1.0.0",
+      hash,
+      document: withComponents({
+        "a/b": { type: "string" },
+        "c~d": { type: "number" },
+        refs: {
+          type: "array",
+          prefixItems: [
+            { $ref: "#/components/schemas/a~1b" },
+            { $ref: "#/components/schemas/c~0d" },
+            { $ref: "#/components/schemas/a~1b/items" },
+          ],
+          minItems: 3,
+          items: false,
+        },
+      }),
+    });
+    expect(text).toContain("export type ShopRefs = [ShopAB, ShopCD, unknown];");
+  });
+
+  test("types recursive events and __proto__ names the way toOpenAPI wrote them", async () => {
+    const tree = { type: "object", properties: { child: { $ref: "#" } } };
+    const protoObject = JSON.parse(
+      '{"type":"object","properties":{"__proto__":{"type":"string"}},"required":["__proto__"]}',
+    );
+    const events = Object.fromEntries([
+      ["a/b", schemaWithJson(tree)],
+      ["__proto__", schemaWithJson(protoObject)],
+    ]);
+    // Through JSON, like the document the registry returns.
+    const document = JSON.parse(JSON.stringify(toOpenAPI(events, { title: "x", version: "1.0.0" })));
+    const text = await generateTypes({ registry: "acme/shop", version: "1.0.0", hash, document });
+    expect(text).toContain('event: "a/b";\n      subject: string | null;\n      data: ShopAB;');
+    expect(text).toContain("export type ShopAB = {\n  child?: ShopAB;\n};");
+    expect(text).toContain('event: "__proto__";');
+    expect(text).toContain("__proto__: string;");
+  });
+
+  test("names thousands of colliding components quickly", async () => {
+    // 12,000 keys that all pascal-case to "X".
+    const schemas = Object.fromEntries(
+      Array.from({ length: 12_000 }, (_, index) => [
+        `${"-".repeat(index % 110)}x${"-".repeat(Math.floor(index / 110))}`,
+        { type: "string" },
+      ]),
+    );
+    const startedAt = performance.now();
+    const text = await generateTypes({
+      registry: "acme/shop",
+      version: "1.0.0",
+      hash,
+      document: withComponents(schemas),
+    });
+    expect(performance.now() - startedAt).toBeLessThan(500);
+    expect(text).toContain("export type ShopX = string;");
+    expect(text).toContain("export type ShopX12000 = string;");
   });
 
   test("refuses output past the size cap", async () => {

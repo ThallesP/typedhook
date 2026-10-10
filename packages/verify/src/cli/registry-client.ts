@@ -1,6 +1,9 @@
 import { hashDocument } from "./hash";
 import { isRecord } from "./is-record";
 
+// Replaced with the hosted registry's URL once it's deployed.
+export const DEFAULT_REGISTRY_URL = "http://localhost:8787";
+
 export type FetchImpl = (url: string, init: RequestInit) => Promise<Response>;
 
 export type RegistryVersion = { version: string; hash: string; document: Record<string, unknown> };
