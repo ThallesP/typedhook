@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { githubOidcToken } from "../src/cli/github-oidc";
+import { githubOidcToken } from "../src/github-oidc";
 
 describe("githubOidcToken", () => {
   test("uses TYPEDHOOK_OIDC_TOKEN when set", async () => {

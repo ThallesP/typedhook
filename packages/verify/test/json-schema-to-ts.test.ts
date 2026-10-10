@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { jsonSchemaToTs } from "../src/cli/json-schema-to-ts";
+import { jsonSchemaToTs } from "../src/registry/json-schema-to-ts";
 
 describe("jsonSchemaToTs", () => {
   test("primitives, with integer as number and validation keywords ignored", () => {

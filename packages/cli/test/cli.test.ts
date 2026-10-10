@@ -2,25 +2,24 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { GENERATOR_VERSION, canonicalJson, generateTypes, hashDocument } from "@typedhook/verify/registry";
 import { createApp } from "../../registry/src/app";
 import { githubVerifier } from "../../registry/src/github-oidc";
 import { d1Store } from "../../registry/src/store";
 import { memoryD1 } from "../../registry/test/d1";
 import { AUDIENCE, keySet, signGithubToken } from "../../registry/test/github-token";
-import { add } from "../src/cli/commands/add";
-import { pull } from "../src/cli/commands/pull";
-import { push } from "../src/cli/commands/push";
-import { readLock, writeLock } from "../src/cli/config";
-import { GENERATOR_VERSION, generateTypes } from "../src/cli/generate";
-import { canonicalJson, hashDocument } from "../src/cli/hash";
-import { billingDocument } from "./fixtures/billing";
+import { billingDocument } from "../../verify/test/fixtures/billing";
+import { add } from "../src/commands/add";
+import { pull } from "../src/commands/pull";
+import { push } from "../src/commands/push";
+import { readLock, writeLock } from "../src/config";
 
 const app = createApp({
   store: d1Store(memoryD1()),
   verifyGithubToken: githubVerifier({ audience: AUDIENCE, keySet }),
 });
 const token = await signGithubToken();
-const fixtures = join(import.meta.dir, "fixtures");
+const fixtures = join(import.meta.dir, "../../verify/test/fixtures");
 const log = (_line: string) => {};
 
 let server = serve();
@@ -79,7 +78,7 @@ describe("webhooks CLI against the registry", () => {
     expect(lines).toEqual([
       "added acme/billing@^1.0.0 (1.0.0) → src/webhooks/billing.ts",
       "added `typedhook pull` to the postinstall script in package.json",
-      expect.stringContaining("warning: @typedhook/verify isn't in dependencies"),
+      expect.stringContaining("warning: typedhook isn't in dependencies"),
       "commit typedhook.json, typedhook.lock and src/webhooks so installs work offline",
     ]);
 
@@ -247,15 +246,17 @@ test("pull without a typedhook.json is a no-op", async () => {
 });
 
 test("the built CLI runs under node", async () => {
-  const outDir = await mkdtemp(join(tmpdir(), "typedhook-dist-"));
+  const packageDir = join(import.meta.dir, "..");
+  // Inside the package so node resolves @typedhook/verify from the workspace.
+  const outDir = await mkdtemp(join(packageDir, ".test-dist-"));
   const build = Bun.spawnSync(
-    ["bunx", "tsup", "--entry.cli=src/cli/index.ts", "--format", "esm", "--out-dir", outDir],
-    { cwd: join(import.meta.dir, "..") },
+    ["bunx", "tsup", "--entry.index=src/index.ts", "--format", "esm", "--out-dir", outDir],
+    { cwd: packageDir },
   );
   expect(build.exitCode).toBe(0);
-  const help = Bun.spawnSync(["node", join(outDir, "cli.js"), "--help"]);
+  const help = Bun.spawnSync(["node", join(outDir, "index.js"), "--help"]);
   expect(help.stdout.toString()).toStartWith("Usage: typedhook <command> [options]");
-  const unknown = Bun.spawnSync(["node", join(outDir, "cli.js"), "nope"]);
+  const unknown = Bun.spawnSync(["node", join(outDir, "index.js"), "nope"]);
   expect(unknown.exitCode).toBe(1);
   expect(unknown.stderr.toString()).toBe('typedhook: unknown command "nope", see `typedhook --help`\n');
   await rm(outDir, { recursive: true });

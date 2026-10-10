@@ -1,7 +1,7 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { DEFAULT_REGISTRY_URL } from "@typedhook/verify/registry";
 import { isRecord } from "./is-record";
-import { DEFAULT_REGISTRY_URL } from "./registry-client";
 
 const DEFAULT_OUT = "src/webhooks";
 

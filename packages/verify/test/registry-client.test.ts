@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { hashDocument } from "../src/cli/hash";
-import { isStrictSemver, parseRegistry, pushDocument, resolveRegistry } from "../src/cli/registry-client";
+import { hashDocument } from "../src/registry/hash";
+import { isStrictSemver, parseRegistry, pushDocument, resolveRegistry } from "../src/registry/registry-client";
 
 const document = { openapi: "3.1.0", info: { title: "Billing", version: "1.4.0" }, webhooks: {} };
 

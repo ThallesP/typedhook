@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalJson, hashDocument } from "../src/cli/hash";
+import { canonicalJson, hashDocument } from "../src/registry/hash";
 
 describe("canonicalJson", () => {
   test("sorts integer-like keys as strings, unlike JSON.stringify", () => {

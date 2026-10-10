@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { hashDocument } from "../src/cli/hash";
-import { toOpenAPI } from "../src/cli/openapi";
+import { hashDocument } from "../src/registry/hash";
+import { toOpenAPI } from "../src/registry/openapi";
 import { billingDocument } from "./fixtures/billing";
 
 const info = { title: "Test", version: "1.0.0" };

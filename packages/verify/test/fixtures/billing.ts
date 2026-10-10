@@ -3,9 +3,9 @@
  * the generator: `bun packages/verify/test/fixtures/billing.ts`
  */
 import { z } from "zod";
-import { generateTypes } from "../../src/cli/generate";
-import { hashDocument } from "../../src/cli/hash";
-import { toOpenAPI } from "../../src/cli/openapi";
+import { generateTypes } from "../../src/registry/generate";
+import { hashDocument } from "../../src/registry/hash";
+import { toOpenAPI } from "../../src/registry/openapi";
 
 const Category = z.object({
   name: z.string(),

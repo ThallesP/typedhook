@@ -1,7 +1,7 @@
 {
   "name": "@typedhook/verify",
   "version": "0.1.0",
-  "description": "Zero-dependency webhook signature verification (Standard Webhooks / svix compatible) — WebCrypto, runs on Node 20+, Bun, Deno, Workers, edge",
+  "description": "Zero-dependency webhook signature verification (Standard Webhooks / svix compatible) \u2014 WebCrypto, runs on Node 20+, Bun, Deno, Workers, edge",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -17,14 +17,11 @@
       "require": "./dist/index.cjs"
     },
     "./registry": {
-      "bun": "./src/cli/registry.ts",
+      "bun": "./src/registry/index.ts",
       "types": "./dist/registry.d.ts",
       "import": "./dist/registry.js",
       "require": "./dist/registry.cjs"
     }
-  },
-  "bin": {
-    "typedhook": "./dist/cli.js"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -46,7 +43,7 @@
     "hmac"
   ],
   "scripts": {
-    "build": "tsup --entry.index=src/index.ts --entry.registry=src/cli/registry.ts --format esm,cjs --dts --clean && tsup --entry.cli=src/cli/index.ts --format esm"
+    "build": "tsup --entry.index=src/index.ts --entry.registry=src/registry/index.ts --format esm,cjs --dts --clean"
   },
   "publishConfig": {
     "access": "public"

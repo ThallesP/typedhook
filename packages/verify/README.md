@@ -30,29 +30,15 @@ retries).
 
 Senders that publish their events with the
 [publish action](https://github.com/ThallesP/typedhook/tree/main/packages/publish-action)
-can be typed without installing anything from them. With this package installed:
+can be typed without installing anything from them. The
+[`typedhook`](https://www.npmjs.com/package/typedhook) CLI pulls their events as types for
+`verifier.verify<Events>()`:
 
 ```sh
+npm install typedhook
 npx typedhook add acme/billing
 ```
 
-This writes `typedhook.json`, `typedhook.lock` and `src/webhooks/billing.ts`, and adds
-`typedhook pull` to your `postinstall`, so the types are regenerated on every install.
-Commit all three so installs work offline, and keep `@typedhook/verify` in `dependencies`:
-the postinstall needs it at install time, so `npm ci --omit=dev` fails with it in `devDependencies`.
-
-```ts
-import type { BillingEvents } from "./webhooks/billing";
-
-const result = await verifier.verify<BillingEvents>(req);
-if (result.ok && result.payload.event === "invoice.paid") {
-  result.payload.data; // typed for invoice.paid
-}
-```
-
-- `typedhook pull` only fetches what `typedhook.lock` pins, and skips the network when the
-  generated files already match it.
-- `typedhook pull --update` moves to the newest versions allowed by the ranges in `typedhook.json`.
-- `typedhook pull --check` fails when generated files are missing or stale (for CI).
+See the [CLI README](https://github.com/ThallesP/typedhook/tree/main/packages/cli).
 
 Full docs: https://github.com/ThallesP/typedhook

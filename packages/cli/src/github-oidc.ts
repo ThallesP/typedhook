@@ -1,6 +1,6 @@
+import type { FetchImpl } from "@typedhook/verify/registry";
 import type { Env } from "./config";
 import { isRecord } from "./is-record";
-import type { FetchImpl } from "./registry-client";
 
 export type GithubOidcTokenOptions = {
   /** The registry URL; the registry only accepts tokens issued for it. */

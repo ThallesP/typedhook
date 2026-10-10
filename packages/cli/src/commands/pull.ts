@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { resolveRegistry } from "@typedhook/verify/registry";
 import {
   type Env,
   type LockEntry,
@@ -9,7 +10,6 @@ import {
   writeLock,
 } from "../config";
 import { type GeneratedFile, generatedFiles, staleReason, writeGeneratedFile } from "../generated-file";
-import { resolveRegistry } from "../registry-client";
 
 export type PullOptions = {
   /** Re-resolve every range instead of using the locked versions. */

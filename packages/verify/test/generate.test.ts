@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { GENERATOR_VERSION, generateTypes, readGeneratedHeader } from "../src/cli/generate";
-import { hashText } from "../src/cli/hash";
-import { toOpenAPI } from "../src/cli/openapi";
+import { GENERATOR_VERSION, generateTypes, readGeneratedHeader } from "../src/registry/generate";
+import { hashText } from "../src/registry/hash";
+import { toOpenAPI } from "../src/registry/openapi";
 import { billingTypes } from "./fixtures/billing";
 
 const hash = "sha256-3q2+7w/Zm9vYmFy=";

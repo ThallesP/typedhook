@@ -1,11 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { type OpenAPIInfo, isStrictSemver, pushDocument, toOpenAPI } from "@typedhook/verify/registry";
 import { type Env, findProject, registryUrl } from "../config";
 import { githubOidcToken } from "../github-oidc";
 import { isRecord } from "../is-record";
-import { type OpenAPIInfo, toOpenAPI } from "../openapi";
-import { isStrictSemver, pushDocument } from "../registry-client";
 
 export type PushOptions = {
   /** Module exporting the event map. */

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { type RegistryVersion, parseRegistry, resolveRegistry } from "@typedhook/verify/registry";
 import {
   type Env,
   defaultConfig,
@@ -13,7 +14,6 @@ import {
 } from "../config";
 import { generatedFiles, writeGeneratedFile } from "../generated-file";
 import { hasDependency, withPostinstall } from "../postinstall";
-import { type RegistryVersion, parseRegistry, resolveRegistry } from "../registry-client";
 
 export type AddOptions = {
   /** Saved as `registry` in typedhook.json. */
@@ -87,9 +87,9 @@ async function addPostinstall(root: string, log: (line: string) => void): Promis
     await writeText(path, next);
     log("added `typedhook pull` to the postinstall script in package.json");
   }
-  if (!hasDependency(text, "@typedhook/verify")) {
+  if (!hasDependency(text, "typedhook")) {
     log(
-      "warning: @typedhook/verify isn't in dependencies, so the postinstall fails on installs without devDependencies (npm ci --omit=dev); move it to dependencies",
+      "warning: typedhook isn't in dependencies, so the postinstall fails on installs without it (npm ci --omit=dev, or npx without installing); add it to dependencies",
     );
   }
 }

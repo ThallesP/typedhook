@@ -1,9 +1,14 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  GENERATOR_VERSION,
+  type RegistryVersion,
+  generateTypes,
+  hashText,
+  parseRegistry,
+  readGeneratedHeader,
+} from "@typedhook/verify/registry";
 import { type LockEntry, type WebhooksConfig, readText, writeText } from "./config";
-import { GENERATOR_VERSION, generateTypes, readGeneratedHeader } from "./generate";
-import { hashText } from "./hash";
-import { type RegistryVersion, parseRegistry } from "./registry-client";
 
 export type GeneratedFile = {
   /** `owner/name` */
