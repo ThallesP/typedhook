@@ -1,0 +1,56 @@
+{
+  "name": "@thallesp/webhooks-mikro-orm",
+  "version": "0.1.0",
+  "description": "MikroORM outbox adapter for @thallesp/webhooks — FOR UPDATE SKIP LOCKED claiming on Postgres and MySQL, safe for concurrent workers",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "directory": "packages/mikro-orm"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "webhooks",
+    "outbox",
+    "mikro-orm",
+    "postgres",
+    "mysql",
+    "adapter"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@mikro-orm/core": "^6.0.0 || ^7.0.0",
+    "@thallesp/webhooks": "^0.1.2"
+  },
+  "devDependencies": {
+    "@mikro-orm/core": "^7.2.5",
+    "@mikro-orm/libsql": "^7.2.5",
+    "@mikro-orm/mysql": "^7.2.5",
+    "@mikro-orm/postgresql": "^7.2.5",
+    "@thallesp/webhooks": "workspace:*"
+  }
+}
