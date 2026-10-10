@@ -1,28 +1,28 @@
-# webhooks
+# typedhook
 
 Type-safe webhooks for TypeScript. Uses the [Standard Webhooks](https://www.standardwebhooks.com/) format.
 
 | Package | Use it to |
 | --- | --- |
-| `@thallesp/webhooks` | Send webhooks |
-| `@thallesp/webhooks-verify` | Verify webhooks you receive (zero deps) |
-| `@thallesp/webhooks-prisma` | Store the outbox in Postgres with Prisma |
-| `@thallesp/webhooks-drizzle` | Store the outbox with Drizzle (Postgres, MySQL, SQLite) |
-| `@thallesp/webhooks-kysely` | Store the outbox with Kysely (Postgres, MySQL, SQLite) |
-| `@thallesp/webhooks-typeorm` | Store the outbox with TypeORM (Postgres, MySQL) |
-| `@thallesp/webhooks-mikro-orm` | Store the outbox with MikroORM (Postgres, MySQL, SQLite) |
-| `@thallesp/webhooks-sequelize` | Store the outbox with Sequelize (Postgres, MySQL, SQLite) |
-| `@thallesp/webhooks-knex` | Store the outbox with Knex (Postgres, MySQL, SQLite) |
-| `@thallesp/webhooks-mongodb` | Store the outbox in MongoDB |
+| `@typedhook/sdk` | Send webhooks |
+| `@typedhook/verify` | Verify webhooks you receive (zero deps) |
+| `@typedhook/prisma` | Store the outbox in Postgres with Prisma |
+| `@typedhook/drizzle` | Store the outbox with Drizzle (Postgres, MySQL, SQLite) |
+| `@typedhook/kysely` | Store the outbox with Kysely (Postgres, MySQL, SQLite) |
+| `@typedhook/typeorm` | Store the outbox with TypeORM (Postgres, MySQL) |
+| `@typedhook/mikro-orm` | Store the outbox with MikroORM (Postgres, MySQL, SQLite) |
+| `@typedhook/sequelize` | Store the outbox with Sequelize (Postgres, MySQL, SQLite) |
+| `@typedhook/knex` | Store the outbox with Knex (Postgres, MySQL, SQLite) |
+| `@typedhook/mongodb` | Store the outbox in MongoDB |
 
 ## Sending
 
 ```sh
-npm install @thallesp/webhooks
+npm install @typedhook/sdk
 ```
 
 ```ts
-import { webhooks } from "@thallesp/webhooks";
+import { webhooks } from "@typedhook/sdk";
 import { z } from "zod"; // or valibot, arktype (any Standard Schema)
 
 const wh = webhooks({
@@ -52,12 +52,12 @@ if (!result.ok) console.error(result.error);
 The outbox saves events in your database, in the same transaction as your data. A worker sends them later and retries until they succeed.
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-prisma
+npm install @typedhook/sdk @typedhook/prisma
 ```
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { prismaOutboxAdapter } from "@thallesp/webhooks-prisma";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { prismaOutboxAdapter } from "@typedhook/prisma";
 import type { Prisma } from "@prisma/client";
 
 const wh = webhooks({
@@ -118,13 +118,13 @@ If you run more than one worker, `claim` must mark the rows it returns (for exam
 ## Verifying
 
 ```sh
-npm install @thallesp/webhooks-verify
+npm install @typedhook/verify
 ```
 
 Works on Node 20+, Bun, Deno, Cloudflare Workers and edge runtimes. It also accepts `svix-*` headers.
 
 ```ts
-import { createVerifier } from "@thallesp/webhooks-verify";
+import { createVerifier } from "@typedhook/verify";
 
 const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
 
@@ -155,7 +155,7 @@ Export the event types from the sender and import them as types in the consumer:
 
 ```ts
 // sender
-import type { EventUnion } from "@thallesp/webhooks";
+import type { EventUnion } from "@typedhook/sdk";
 export type Events = EventUnion<typeof events>;
 
 // consumer
@@ -180,9 +180,9 @@ bun run typecheck
 Adapter tests run against real databases when these are set, and skip otherwise (SQLite always runs in-process):
 
 ```sh
-WEBHOOKS_TEST_POSTGRES_URL=postgres://postgres:pg@127.0.0.1:5432/webhooks_test
-WEBHOOKS_TEST_MYSQL_URL=mysql://root:mysql@127.0.0.1:3306/webhooks_test
-WEBHOOKS_TEST_MONGO_URL="mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true"
+TYPEDHOOK_TEST_POSTGRES_URL=postgres://postgres:pg@127.0.0.1:5432/webhooks_test
+TYPEDHOOK_TEST_MYSQL_URL=mysql://root:mysql@127.0.0.1:3306/webhooks_test
+TYPEDHOOK_TEST_MONGO_URL="mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true"
 ```
 
 CI starts all three; see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).

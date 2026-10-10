@@ -1,12 +1,12 @@
 {
-  "name": "@thallesp/webhooks-verify",
-  "version": "0.1.2",
+  "name": "@typedhook/verify",
+  "version": "0.1.0",
   "description": "Zero-dependency webhook signature verification (Standard Webhooks / svix compatible) — WebCrypto, runs on Node 20+, Bun, Deno, Workers, edge",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "url": "git+https://github.com/ThallesP/typedhook.git",
     "directory": "packages/verify"
   },
   "exports": {

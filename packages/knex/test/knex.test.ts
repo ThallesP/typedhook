@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { outbox, webhooks, type OutboxRow } from "@thallesp/webhooks";
+import { outbox, webhooks, type OutboxRow } from "@typedhook/sdk";
 import knex, { type Knex } from "knex";
 import { z } from "zod";
 import { knexOutboxAdapter } from "../src/index";
@@ -17,8 +17,8 @@ interface Dialect {
   isSingleConnection: boolean;
 }
 
-const postgresUrl = process.env.WEBHOOKS_TEST_POSTGRES_URL;
-const mysqlUrl = process.env.WEBHOOKS_TEST_MYSQL_URL;
+const postgresUrl = process.env.TYPEDHOOK_TEST_POSTGRES_URL;
+const mysqlUrl = process.env.TYPEDHOOK_TEST_MYSQL_URL;
 
 const dialects: Dialect[] = [
   {

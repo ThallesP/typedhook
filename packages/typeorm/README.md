@@ -1,13 +1,13 @@
-# @thallesp/webhooks-typeorm
+# @typedhook/typeorm
 
-TypeORM outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). Claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
+TypeORM outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). Claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
 
 **Postgres and MySQL 8+ only.** SQLite has no `SKIP LOCKED`, and TypeORM runs every SQLite transaction on one shared connection.
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-typeorm
+npm install @typedhook/sdk @typedhook/typeorm
 ```
 
 ## Schema
@@ -16,7 +16,7 @@ Add the outbox entity to your DataSource. It's an `EntitySchema`, so you don't n
 
 ```ts
 import { DataSource } from "typeorm";
-import { webhookOutboxSchema } from "@thallesp/webhooks-typeorm";
+import { webhookOutboxSchema } from "@typedhook/typeorm";
 
 export const dataSource = new DataSource({
   type: "postgres",
@@ -74,8 +74,8 @@ The SQL uses TypeORM's default column names. If you use a custom naming strategy
 ## Usage
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { typeormOutboxAdapter } from "@thallesp/webhooks-typeorm";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { typeormOutboxAdapter } from "@typedhook/typeorm";
 import { z } from "zod";
 import { dataSource } from "./data-source";
 

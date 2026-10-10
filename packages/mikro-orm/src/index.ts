@@ -6,7 +6,7 @@ import {
   type EntityProperty,
   type Platform,
 } from "@mikro-orm/core";
-import type { OutboxAdapter, OutboxRow } from "@thallesp/webhooks";
+import type { OutboxAdapter, OutboxRow } from "@typedhook/sdk";
 
 export interface WebhookOutboxSchemaOptions {
   /** Table name (unquoted identifier). Default "webhook_outbox". */

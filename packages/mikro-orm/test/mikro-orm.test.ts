@@ -3,11 +3,11 @@ import type { EntityManager, EntitySchema, MikroORM } from "@mikro-orm/core";
 import { MikroORM as LibSqlORM } from "@mikro-orm/libsql";
 import { MikroORM as MySqlORM } from "@mikro-orm/mysql";
 import { MikroORM as PostgresORM } from "@mikro-orm/postgresql";
-import type { OutboxRow } from "@thallesp/webhooks";
+import type { OutboxRow } from "@typedhook/sdk";
 import { WebhookOutbox, mikroOrmOutboxAdapter, webhookOutboxSchema } from "../src/index";
 
-const postgresUrl = process.env.WEBHOOKS_TEST_POSTGRES_URL;
-const mysqlUrl = process.env.WEBHOOKS_TEST_MYSQL_URL;
+const postgresUrl = process.env.TYPEDHOOK_TEST_POSTGRES_URL;
+const mysqlUrl = process.env.TYPEDHOOK_TEST_MYSQL_URL;
 
 // CI shares one database per engine across every adapter package, so the
 // server suites use a table only this package touches.
@@ -252,7 +252,7 @@ for (const dialect of dialects) {
     });
 
     test("end-to-end: with(em).send() inside transactional, worker tick delivers", async () => {
-      const { webhooks, outbox } = await import("@thallesp/webhooks");
+      const { webhooks, outbox } = await import("@typedhook/sdk");
       const { z } = await import("zod");
       const received: string[] = [];
       using server = Bun.serve({

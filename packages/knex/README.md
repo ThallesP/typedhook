@@ -1,11 +1,11 @@
-# @thallesp/webhooks-knex
+# @typedhook/knex
 
-Knex outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). Works with Postgres, MySQL 8+ and SQLite. On Postgres and MySQL, claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
+Knex outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). Works with Postgres, MySQL 8+ and SQLite. On Postgres and MySQL, claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-knex knex
+npm install @typedhook/sdk @typedhook/knex knex
 ```
 
 Plus your driver (`pg`, `mysql2`, `sqlite3` or `better-sqlite3`).
@@ -105,8 +105,8 @@ Column names must stay as written (camelCase, matching the outbox row). Differen
 ## Usage
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { knexOutboxAdapter } from "@thallesp/webhooks-knex";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { knexOutboxAdapter } from "@typedhook/knex";
 import knex from "knex";
 import { z } from "zod";
 

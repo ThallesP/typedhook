@@ -1,4 +1,4 @@
-import type { OutboxAdapter, OutboxRow } from "@thallesp/webhooks";
+import type { OutboxAdapter, OutboxRow } from "@typedhook/sdk";
 import type { Knex } from "knex";
 
 export interface KnexAdapterOptions {

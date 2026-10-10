@@ -1,13 +1,13 @@
-# @thallesp/webhooks-mongodb
+# @typedhook/mongodb
 
-MongoDB outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). MongoDB has no `SKIP LOCKED`, so each row is claimed with its own atomic `findOneAndUpdate`. You can run any number of concurrent workers without double delivery.
+MongoDB outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). MongoDB has no `SKIP LOCKED`, so each row is claimed with its own atomic `findOneAndUpdate`. You can run any number of concurrent workers without double delivery.
 
 Uses the official [`mongodb`](https://www.npmjs.com/package/mongodb) driver, v6 or v7.
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-mongodb mongodb
+npm install @typedhook/sdk @typedhook/mongodb mongodb
 ```
 
 ## Indexes
@@ -42,8 +42,8 @@ A stored document looks like this:
 Transactions need a replica set (a single-node one is fine for local dev) or a sharded cluster. A standalone `mongod` can't run them.
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { mongodbOutboxAdapter } from "@thallesp/webhooks-mongodb";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { mongodbOutboxAdapter } from "@typedhook/mongodb";
 import { MongoClient } from "mongodb";
 import { z } from "zod";
 

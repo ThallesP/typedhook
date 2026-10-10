@@ -2,7 +2,7 @@
  * One adapter contract, run against every dialect on a real database.
  */
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { outbox, webhooks, type OutboxAdapter, type OutboxRow } from "@thallesp/webhooks";
+import { outbox, webhooks, type OutboxAdapter, type OutboxRow } from "@typedhook/sdk";
 import { z } from "zod";
 
 export interface Harness<Tx> {

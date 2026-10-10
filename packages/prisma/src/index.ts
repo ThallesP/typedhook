@@ -1,4 +1,4 @@
-import type { OutboxAdapter, OutboxRow } from "@thallesp/webhooks";
+import type { OutboxAdapter, OutboxRow } from "@typedhook/sdk";
 
 /**
  * Structural slice of PrismaClient the adapter needs — keeps this package free

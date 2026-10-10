@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { outbox, webhooks, type OutboxRow } from "@thallesp/webhooks";
+import { outbox, webhooks, type OutboxRow } from "@typedhook/sdk";
 import { Sequelize, type Dialect } from "sequelize";
 import { z } from "zod";
 import { sequelizeOutboxAdapter } from "../src/index";
@@ -11,8 +11,8 @@ const CUSTOM_TABLE = "outbox_sequelize_custom";
 const SYNCED_TABLE = "outbox_sequelize_synced";
 
 const suites: { dialect: Dialect; url: string | undefined }[] = [
-  { dialect: "postgres", url: process.env.WEBHOOKS_TEST_POSTGRES_URL },
-  { dialect: "mysql", url: process.env.WEBHOOKS_TEST_MYSQL_URL },
+  { dialect: "postgres", url: process.env.TYPEDHOOK_TEST_POSTGRES_URL },
+  { dialect: "mysql", url: process.env.TYPEDHOOK_TEST_MYSQL_URL },
   { dialect: "sqlite", url: ":memory:" },
 ];
 

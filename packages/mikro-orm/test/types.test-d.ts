@@ -3,7 +3,7 @@
  * transactional EntityManager is accepted by `with()`, anything else isn't.
  */
 import { MikroORM, type EntityManager } from "@mikro-orm/postgresql";
-import { outbox, webhooks } from "@thallesp/webhooks";
+import { outbox, webhooks } from "@typedhook/sdk";
 import { z } from "zod";
 import { WebhookOutbox, mikroOrmOutboxAdapter } from "../src/index";
 

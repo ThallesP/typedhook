@@ -9,9 +9,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      WEBHOOKS_TEST_POSTGRES_URL: postgres://postgres:pg@127.0.0.1:5432/webhooks_test
-      WEBHOOKS_TEST_MYSQL_URL: mysql://root:mysql@127.0.0.1:3306/webhooks_test
-      WEBHOOKS_TEST_MONGO_URL: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
+      TYPEDHOOK_TEST_POSTGRES_URL: postgres://postgres:pg@127.0.0.1:5432/webhooks_test
+      TYPEDHOOK_TEST_MYSQL_URL: mysql://root:mysql@127.0.0.1:3306/webhooks_test
+      TYPEDHOOK_TEST_MONGO_URL: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

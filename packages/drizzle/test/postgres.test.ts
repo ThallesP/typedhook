@@ -6,7 +6,7 @@ import { drizzleOutboxAdapter } from "../src/index";
 import { claimUntilEmpty, outboxContract } from "./contract";
 import { CUSTOM_TABLE, TABLE, pgOutbox, pgOutboxDdl, sqliteOutbox } from "./schema";
 
-const url = process.env.WEBHOOKS_TEST_POSTGRES_URL;
+const url = process.env.TYPEDHOOK_TEST_POSTGRES_URL;
 
 describe.skipIf(!url)("drizzleOutboxAdapter on Postgres", () => {
   const outboxTable = pgOutbox(TABLE);

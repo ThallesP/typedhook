@@ -1,11 +1,11 @@
-# @thallesp/webhooks-kysely
+# @typedhook/kysely
 
-[Kysely](https://kysely.dev) outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). Works on Postgres, MySQL 8+ and SQLite. Claiming is safe with any number of concurrent workers.
+[Kysely](https://kysely.dev) outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). Works on Postgres, MySQL 8+ and SQLite. Claiming is safe with any number of concurrent workers.
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-kysely kysely
+npm install @typedhook/sdk @typedhook/kysely kysely
 ```
 
 ## Table
@@ -75,7 +75,7 @@ CREATE INDEX webhook_outbox_due ON webhook_outbox (status, nextAttemptAt);
 Add the table to your `DB` type:
 
 ```ts
-import type { WebhookOutboxDatabase } from "@thallesp/webhooks-kysely";
+import type { WebhookOutboxDatabase } from "@typedhook/kysely";
 
 interface DB extends WebhookOutboxDatabase {
   users: UserTable;
@@ -87,8 +87,8 @@ Renamed the table? Pass `{ table }` to the adapter and `WebhookOutboxDatabase<"m
 ## Usage
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { kyselyOutboxAdapter } from "@thallesp/webhooks-kysely";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { kyselyOutboxAdapter } from "@typedhook/kysely";
 import { Kysely, PostgresDialect } from "kysely";
 import { Pool } from "pg";
 import { z } from "zod";

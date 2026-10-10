@@ -1,12 +1,12 @@
 {
-  "name": "@thallesp/webhooks-typeorm",
+  "name": "@typedhook/typeorm",
   "version": "0.1.0",
-  "description": "TypeORM (Postgres, MySQL) outbox adapter for @thallesp/webhooks — FOR UPDATE SKIP LOCKED claiming, safe for concurrent workers",
+  "description": "TypeORM (Postgres, MySQL) outbox adapter for @typedhook/sdk — FOR UPDATE SKIP LOCKED claiming, safe for concurrent workers",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "url": "git+https://github.com/ThallesP/typedhook.git",
     "directory": "packages/typeorm"
   },
   "exports": {
@@ -43,11 +43,11 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@thallesp/webhooks": "^0.1.2",
+    "@typedhook/sdk": "^0.1.0",
     "typeorm": "^0.3.0 || ^1.0.0"
   },
   "devDependencies": {
-    "@thallesp/webhooks": "workspace:*",
+    "@typedhook/sdk": "workspace:*",
     "@types/pg": "^8.23.1",
     "mysql2": "^3.24.5",
     "pg": "^8.23.1",

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import type { OutboxRow } from "@thallesp/webhooks";
+import type { OutboxRow } from "@typedhook/sdk";
 import { type Db, MongoClient } from "mongodb";
 import { type OutboxDocument, mongodbOutboxAdapter } from "../src/index";
 
-const url = process.env.WEBHOOKS_TEST_MONGO_URL ?? "";
+const url = process.env.TYPEDHOOK_TEST_MONGO_URL ?? "";
 const DATABASE = "wh_mongodb";
 // Collection names unique to this package: CI shares one Mongo across packages.
 const COLLECTION = "outbox_mongodb";
@@ -207,7 +207,7 @@ describe.skipIf(!url)("mongodbOutboxAdapter", () => {
   });
 
   test("end-to-end: with(session).send in a transaction, worker tick delivers", async () => {
-    const { webhooks, outbox: outboxDelivery } = await import("@thallesp/webhooks");
+    const { webhooks, outbox: outboxDelivery } = await import("@typedhook/sdk");
     const { z } = await import("zod");
     const received: { body: string; signature: string | null }[] = [];
     const server = Bun.serve({

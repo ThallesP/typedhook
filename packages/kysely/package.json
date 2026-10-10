@@ -1,12 +1,12 @@
 {
-  "name": "@thallesp/webhooks-kysely",
+  "name": "@typedhook/kysely",
   "version": "0.1.0",
-  "description": "Kysely outbox adapter for @thallesp/webhooks — Postgres, MySQL and SQLite, safe for concurrent workers",
+  "description": "Kysely outbox adapter for @typedhook/sdk — Postgres, MySQL and SQLite, safe for concurrent workers",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "url": "git+https://github.com/ThallesP/typedhook.git",
     "directory": "packages/kysely"
   },
   "exports": {
@@ -44,11 +44,11 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@thallesp/webhooks": "^0.1.2",
+    "@typedhook/sdk": "^0.1.0",
     "kysely": "^0.28.0 || ^0.29.0"
   },
   "devDependencies": {
-    "@thallesp/webhooks": "workspace:*",
+    "@typedhook/sdk": "workspace:*",
     "@types/pg": "^8.23.1",
     "kysely": "^0.29.6",
     "kysely-bun-sqlite": "^0.4.0",

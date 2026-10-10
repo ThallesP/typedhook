@@ -1,12 +1,12 @@
 {
-  "name": "@thallesp/webhooks-mikro-orm",
+  "name": "@typedhook/mikro-orm",
   "version": "0.1.0",
-  "description": "MikroORM outbox adapter for @thallesp/webhooks — FOR UPDATE SKIP LOCKED claiming on Postgres and MySQL, safe for concurrent workers",
+  "description": "MikroORM outbox adapter for @typedhook/sdk — FOR UPDATE SKIP LOCKED claiming on Postgres and MySQL, safe for concurrent workers",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "url": "git+https://github.com/ThallesP/typedhook.git",
     "directory": "packages/mikro-orm"
   },
   "exports": {
@@ -44,13 +44,13 @@
   },
   "peerDependencies": {
     "@mikro-orm/core": "^6.0.0 || ^7.0.0",
-    "@thallesp/webhooks": "^0.1.2"
+    "@typedhook/sdk": "^0.1.0"
   },
   "devDependencies": {
     "@mikro-orm/core": "^7.2.5",
     "@mikro-orm/libsql": "^7.2.5",
     "@mikro-orm/mysql": "^7.2.5",
     "@mikro-orm/postgresql": "^7.2.5",
-    "@thallesp/webhooks": "workspace:*"
+    "@typedhook/sdk": "workspace:*"
   }
 }

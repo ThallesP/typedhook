@@ -1,4 +1,4 @@
-import type { OutboxAdapter, OutboxRow } from "@thallesp/webhooks";
+import type { OutboxAdapter, OutboxRow } from "@typedhook/sdk";
 import type { ClientSession, Db } from "mongodb";
 
 /**

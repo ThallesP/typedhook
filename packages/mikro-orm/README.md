@@ -1,13 +1,13 @@
-# @thallesp/webhooks-mikro-orm
+# @typedhook/mikro-orm
 
-MikroORM outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). Claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
+MikroORM outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). Claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
 
 **Postgres and MySQL 8+**, on MikroORM 6 or 7. SQLite works on MikroORM 7 (see [Semantics](#semantics)).
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-mikro-orm
+npm install @typedhook/sdk @typedhook/mikro-orm
 ```
 
 ## Entity
@@ -15,7 +15,7 @@ npm install @thallesp/webhooks @thallesp/webhooks-mikro-orm
 Add the exported `WebhookOutbox` entity (an `EntitySchema`, no decorators) to your config:
 
 ```ts
-import { WebhookOutbox } from "@thallesp/webhooks-mikro-orm";
+import { WebhookOutbox } from "@typedhook/mikro-orm";
 
 const orm = await MikroORM.init({
   entities: [User, WebhookOutbox],
@@ -53,8 +53,8 @@ Want another table name? Build the entity with `webhookOutboxSchema({ tableName:
 ## Usage
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { mikroOrmOutboxAdapter } from "@thallesp/webhooks-mikro-orm";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { mikroOrmOutboxAdapter } from "@typedhook/mikro-orm";
 import { MikroORM, type EntityManager } from "@mikro-orm/postgresql";
 import { z } from "zod";
 

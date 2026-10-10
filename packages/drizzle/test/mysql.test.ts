@@ -6,7 +6,7 @@ import { drizzleOutboxAdapter } from "../src/index";
 import { claimUntilEmpty, outboxContract } from "./contract";
 import { CUSTOM_TABLE, TABLE, mysqlOutbox, mysqlOutboxDdl, pgOutbox } from "./schema";
 
-const url = process.env.WEBHOOKS_TEST_MYSQL_URL;
+const url = process.env.TYPEDHOOK_TEST_MYSQL_URL;
 
 describe.skipIf(!url)("drizzleOutboxAdapter on MySQL", () => {
   const outboxTable = mysqlOutbox(TABLE);

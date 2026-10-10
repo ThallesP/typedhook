@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import type { OutboxRow } from "@thallesp/webhooks";
+import type { OutboxRow } from "@typedhook/sdk";
 import { DataSource, type EntitySchema } from "typeorm";
 import { type OutboxDatabaseType, typeormOutboxAdapter, webhookOutboxSchema } from "../src/index";
 
@@ -79,8 +79,8 @@ function row(overrides: Partial<OutboxRow> = {}): OutboxRow {
 }
 
 const databases = [
-  { type: "postgres", url: process.env.WEBHOOKS_TEST_POSTGRES_URL },
-  { type: "mysql", url: process.env.WEBHOOKS_TEST_MYSQL_URL },
+  { type: "postgres", url: process.env.TYPEDHOOK_TEST_POSTGRES_URL },
+  { type: "mysql", url: process.env.TYPEDHOOK_TEST_MYSQL_URL },
 ] as const;
 
 for (const { type, url } of databases) {
@@ -257,7 +257,7 @@ for (const { type, url } of databases) {
     });
 
     test("send() inside a transaction enqueues, worker tick delivers", async () => {
-      const { webhooks, outbox } = await import("@thallesp/webhooks");
+      const { webhooks, outbox } = await import("@typedhook/sdk");
       const { z } = await import("zod");
       const received: string[] = [];
       const server = Bun.serve({

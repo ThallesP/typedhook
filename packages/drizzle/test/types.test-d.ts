@@ -3,7 +3,7 @@
  * The load-bearing claim: the transaction type is inferred from the db, so
  * `with(tx)` rejects anything that isn't a transaction of that database.
  */
-import { outbox, webhooks } from "@thallesp/webhooks";
+import { outbox, webhooks } from "@typedhook/sdk";
 import { drizzle as drizzleSqlite } from "drizzle-orm/bun-sqlite";
 import { drizzle as drizzleMysql } from "drizzle-orm/mysql2";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";

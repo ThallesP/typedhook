@@ -1,11 +1,11 @@
-# @thallesp/webhooks-drizzle
+# @typedhook/drizzle
 
-Drizzle outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). Works with Postgres, MySQL 8+ and SQLite. Claiming is atomic, so you can run any number of concurrent workers without double delivery.
+Drizzle outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). Works with Postgres, MySQL 8+ and SQLite. Claiming is atomic, so you can run any number of concurrent workers without double delivery.
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-drizzle
+npm install @typedhook/sdk @typedhook/drizzle
 ```
 
 Needs `drizzle-orm` 0.44 or later (1.0 is not supported yet).
@@ -94,8 +94,8 @@ export const webhookOutbox = sqliteTable(
 ## Usage
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { drizzleOutboxAdapter } from "@thallesp/webhooks-drizzle";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { drizzleOutboxAdapter } from "@typedhook/drizzle";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import { users, webhookOutbox } from "./schema";

@@ -1,13 +1,13 @@
-# @thallesp/webhooks-prisma
+# @typedhook/prisma
 
-Prisma (Postgres) outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). Claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
+Prisma (Postgres) outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). Claiming uses `FOR UPDATE SKIP LOCKED`, so you can run any number of concurrent workers without double delivery.
 
 **Postgres only** — the claim query is raw SQL.
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-prisma
+npm install @typedhook/sdk @typedhook/prisma
 ```
 
 ## Schema
@@ -38,8 +38,8 @@ Renamed the model or mapped the table? Pass `{ model, table }` to match.
 ## Usage
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { prismaOutboxAdapter } from "@thallesp/webhooks-prisma";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { prismaOutboxAdapter } from "@typedhook/prisma";
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { z } from "zod";
 

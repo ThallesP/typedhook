@@ -8,7 +8,7 @@ import { BunSqliteDialect } from "kysely-bun-sqlite";
 import { createPool } from "mysql2";
 import { Pool } from "pg";
 import { z } from "zod";
-import { outbox, webhooks, type OutboxRow } from "@thallesp/webhooks";
+import { outbox, webhooks, type OutboxRow } from "@typedhook/sdk";
 import {
   kyselyOutboxAdapter,
   type KyselyAdapterOptions,
@@ -37,8 +37,8 @@ interface Engine {
   createTable: (db: Kysely<TestDB>, table: string) => Promise<void>;
 }
 
-const postgresUrl = process.env.WEBHOOKS_TEST_POSTGRES_URL;
-const mysqlUrl = process.env.WEBHOOKS_TEST_MYSQL_URL;
+const postgresUrl = process.env.TYPEDHOOK_TEST_POSTGRES_URL;
+const mysqlUrl = process.env.TYPEDHOOK_TEST_MYSQL_URL;
 const sqliteDir = mkdtempSync(join(tmpdir(), "wh-kysely-"));
 
 const postgres: Engine = {

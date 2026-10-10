@@ -1,4 +1,4 @@
-import type { OutboxAdapter, OutboxRow } from "@thallesp/webhooks";
+import type { OutboxAdapter, OutboxRow } from "@typedhook/sdk";
 import { and, asc, eq, inArray, is, lte, type TablesRelationalConfig } from "drizzle-orm";
 import {
   MySqlDatabase,

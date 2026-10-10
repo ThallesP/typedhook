@@ -1,13 +1,13 @@
-# @thallesp/webhooks-sequelize
+# @typedhook/sequelize
 
-Sequelize v6 outbox adapter for [`@thallesp/webhooks`](https://www.npmjs.com/package/@thallesp/webhooks). Claiming is atomic (`FOR UPDATE SKIP LOCKED` on Postgres and MySQL), so you can run any number of concurrent workers without double delivery.
+Sequelize v6 outbox adapter for [`@typedhook/sdk`](https://www.npmjs.com/package/@typedhook/sdk). Claiming is atomic (`FOR UPDATE SKIP LOCKED` on Postgres and MySQL), so you can run any number of concurrent workers without double delivery.
 
 **Postgres, MySQL 8+ and SQLite 3.35+.** Other dialects throw at startup.
 
 ## Install
 
 ```sh
-npm install @thallesp/webhooks @thallesp/webhooks-sequelize sequelize
+npm install @typedhook/sdk @typedhook/sequelize sequelize
 ```
 
 Plus your Sequelize driver (`pg`, `mysql2` or `sqlite3`).
@@ -107,8 +107,8 @@ Named the table something else? Pass `{ table }` to match.
 ## Usage
 
 ```ts
-import { webhooks, outbox } from "@thallesp/webhooks";
-import { sequelizeOutboxAdapter } from "@thallesp/webhooks-sequelize";
+import { webhooks, outbox } from "@typedhook/sdk";
+import { sequelizeOutboxAdapter } from "@typedhook/sequelize";
 import { Sequelize } from "sequelize";
 import { z } from "zod";
 

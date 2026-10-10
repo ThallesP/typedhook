@@ -1,12 +1,12 @@
 {
-  "name": "@thallesp/webhooks-mongodb",
+  "name": "@typedhook/mongodb",
   "version": "0.1.0",
-  "description": "MongoDB outbox adapter for @thallesp/webhooks — atomic findOneAndUpdate claiming, safe for concurrent workers",
+  "description": "MongoDB outbox adapter for @typedhook/sdk — atomic findOneAndUpdate claiming, safe for concurrent workers",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ThallesP/webhooks.git",
+    "url": "git+https://github.com/ThallesP/typedhook.git",
     "directory": "packages/mongodb"
   },
   "exports": {
@@ -42,11 +42,11 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@thallesp/webhooks": "^0.1.2",
+    "@typedhook/sdk": "^0.1.0",
     "mongodb": "^6.0.0 || ^7.0.0"
   },
   "devDependencies": {
-    "@thallesp/webhooks": "workspace:*",
+    "@typedhook/sdk": "workspace:*",
     "mongodb": "^7.0.0"
   }
 }

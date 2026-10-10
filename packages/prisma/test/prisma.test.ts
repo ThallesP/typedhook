@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { OutboxRow } from "@thallesp/webhooks";
+import type { OutboxRow } from "@typedhook/sdk";
 import { prismaOutboxAdapter } from "../src/index";
 
 /**
@@ -165,7 +165,7 @@ describe("prismaOutboxAdapter", () => {
 
 describe("end-to-end with webhooks()", () => {
   test("send() enqueues via prisma, worker tick delivers", async () => {
-    const { webhooks, outbox } = await import("@thallesp/webhooks");
+    const { webhooks, outbox } = await import("@typedhook/sdk");
     const { z } = await import("zod");
     const client = fakePrisma();
     const adapter = prismaOutboxAdapter(client);
