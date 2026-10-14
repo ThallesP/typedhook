@@ -1,6 +1,6 @@
 {
   "name": "@typedhook/knex",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Knex (Postgres, MySQL, SQLite) outbox adapter for @typedhook/sdk — SKIP LOCKED claiming, safe for concurrent workers",
   "type": "module",
   "license": "MIT",
