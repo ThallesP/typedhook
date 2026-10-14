@@ -210,3 +210,21 @@ html > body[data-scroll-locked] {
   margin-top: 0;
   line-height: 31px;
 }
+
+.grid-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: center -1px;
+  mask-image: radial-gradient(ellipse 60% 70% at 50% 35%, #000 20%, transparent 75%);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.grid-glow > * {
+  position: relative;
+}
