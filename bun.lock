@@ -15,7 +15,7 @@
     },
     "packages/cli": {
       "name": "typedhook",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "typedhook": "./dist/index.js",
       },
@@ -25,7 +25,7 @@
     },
     "packages/drizzle": {
       "name": "@typedhook/drizzle",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/sdk": "workspace:*",
         "@types/pg": "^8.23.1",
@@ -40,7 +40,7 @@
     },
     "packages/knex": {
       "name": "@typedhook/knex",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/sdk": "workspace:*",
         "knex": "^3.3.0",
@@ -55,7 +55,7 @@
     },
     "packages/kysely": {
       "name": "@typedhook/kysely",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/sdk": "workspace:*",
         "@types/pg": "^8.23.1",
@@ -71,7 +71,7 @@
     },
     "packages/mikro-orm": {
       "name": "@typedhook/mikro-orm",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@mikro-orm/core": "^7.2.5",
         "@mikro-orm/libsql": "^7.2.5",
@@ -86,7 +86,7 @@
     },
     "packages/mongodb": {
       "name": "@typedhook/mongodb",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/sdk": "workspace:*",
         "mongodb": "^7.0.0",
@@ -98,7 +98,7 @@
     },
     "packages/prisma": {
       "name": "@typedhook/prisma",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/sdk": "workspace:*",
       },
@@ -134,14 +134,14 @@
     },
     "packages/sdk": {
       "name": "@typedhook/sdk",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/verify": "workspace:*",
       },
     },
     "packages/sequelize": {
       "name": "@typedhook/sequelize",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/sdk": "workspace:*",
         "mysql2": "^3.24.5",
@@ -156,7 +156,7 @@
     },
     "packages/typeorm": {
       "name": "@typedhook/typeorm",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@typedhook/sdk": "workspace:*",
         "@types/pg": "^8.23.1",
@@ -171,7 +171,7 @@
     },
     "packages/verify": {
       "name": "@typedhook/verify",
-      "version": "0.1.0",
+      "version": "0.2.0",
     },
   },
   "packages": {
