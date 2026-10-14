@@ -1,0 +1,53 @@
+---
+title: Subscribers
+description: Decide who receives each event, with a static list or a function that looks them up.
+---
+
+A subscriber is a URL, plus an optional signing secret:
+
+```ts
+type Subscriber = { url: string; secret?: string };
+```
+
+## A static list
+
+When the receivers are fixed, pass them directly:
+
+```ts
+const wh = webhooks({
+  events,
+  subscribers: [
+    { url: "https://hooks.northwind.dev/billing" },
+    { url: "https://audit.northwind.dev/in", secret: process.env.AUDIT_SECRET },
+  ],
+  signing: { secret: process.env.WEBHOOK_SECRET! },
+});
+```
+
+## A resolver
+
+Most apps store subscriptions in a database. Pass a function instead. It runs on every `send()`, after `data` is validated, and returns the subscribers for that event:
+
+```ts
+const wh = webhooks({
+  events,
+  subscribers: async ({ event, subject, data }) => {
+    const rows = await db.subscription.findMany({ where: { event, accountId: subject } });
+    return rows.map((row) => ({ url: row.url, secret: row.secret }));
+  },
+});
+```
+
+The argument is a union keyed on `event`, so checking `event` narrows `data`. It is the validator's output, before JSON: a `z.date()` field is still a `Date` here.
+
+If the resolver throws or rejects, `send()` returns `{ ok: false, error: "subscriber resolver failed: …" }` and nothing is sent.
+
+## Secrets per subscriber
+
+Every subscriber needs a secret. A subscriber's own `secret` is used first, then `signing.secret`. If neither is set, `send()` returns `no signing secret for subscriber <url>` and sends nothing, for any subscriber. A malformed `whsec_` secret is rejected the same way. See [Signing secrets](/docs/signing-secrets).
+
+## One event, many subscribers
+
+Each subscriber gets its own delivery: its own request with [direct delivery](/docs/direct-delivery), its own row in the [outbox](/docs/outbox). All of them share the same event id, which is sent as the `webhook-id` header.
+
+When the resolver returns an empty list, nothing is sent and `send()` still succeeds, with `deliveries: []` or `enqueued: 0`.

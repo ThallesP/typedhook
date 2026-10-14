@@ -1,0 +1,68 @@
+---
+title: createVerifier()
+description: Verify Standard Webhooks signatures with WebCrypto. Zero dependencies.
+---
+
+```ts
+import { createVerifier } from "@typedhook/verify";
+
+function createVerifier(secret: string, opts?: { toleranceSec?: number }): Verifier;
+
+interface Verifier {
+  verify<T = unknown>(request: Request): Promise<VerifyResult<T>>;
+  verifyPayload<T = unknown>(
+    payload: string | Uint8Array,
+    headers: Headers | Record<string, string | string[] | undefined>,
+  ): Promise<VerifyResult<T>>;
+}
+```
+
+## Options
+
+| Option         | Default | What it does                                                    |
+| -------------- | ------- | --------------------------------------------------------------- |
+| `toleranceSec` | `300`   | How far the `webhook-timestamp` may be from now, in either direction |
+
+## Throws
+
+`createVerifier()` throws a `RangeError` at startup when:
+
+- `secret` is empty, or starts with `whsec_` without valid, non-empty base64 after it.
+- `toleranceSec` isn't a finite number of 0 or more.
+
+`verify()` and `verifyPayload()` never throw.
+
+## Result
+
+```ts
+type VerifyResult<T> =
+  | { ok: true; id: string; timestamp: Date; payload: T }
+  | { ok: false; reason: VerifyFailure };
+
+type VerifyFailure =
+  | "missing_headers"
+  | "invalid_id"
+  | "invalid_timestamp"
+  | "timestamp_out_of_tolerance"
+  | "invalid_signature"
+  | "invalid_secret"
+  | "unreadable_body"
+  | "invalid_json";
+```
+
+| Field       | What it is                                                         |
+| ----------- | ------------------------------------------------------------------ |
+| `id`        | The `webhook-id` header. Same on every retry, use it to dedupe     |
+| `timestamp` | The `webhook-timestamp` header as a `Date`: when this attempt was signed |
+| `payload`   | The parsed JSON body, typed as `T` but not validated               |
+
+See [Failure reasons](/docs/failure-reasons) for when each reason is returned.
+
+## verify() and verifyPayload()
+
+| Method            | Input                                           | Notes                                                |
+| ----------------- | ----------------------------------------------- | ---------------------------------------------------- |
+| `verify()`        | A Fetch API `Request`                           | Reads the body. Pass `req.clone()` to read it again |
+| `verifyPayload()` | The raw body as a `string` or `Uint8Array`, and the headers | Plain header objects can use any casing |
+
+Both accept `webhook-*` headers and fall back to `svix-*`. Secrets that start with `whsec_` are base64-decoded. Any other secret is used as plain text.

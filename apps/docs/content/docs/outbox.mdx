@@ -1,0 +1,101 @@
+---
+title: How the outbox works
+heading: How the outbox *works*
+description: Save events in your database, in the same transaction as your data. A worker sends them later and retries until they succeed.
+---
+
+With `direct()` delivery, retries live in memory and a crash loses them. The outbox moves that state into a table you already back up: an event is only written if your transaction commits, and it stays pending until a subscriber answers with a 2xx or it runs out of attempts.
+
+<OutboxPlayground />
+
+## Enqueue inside your transaction
+
+Pass an adapter to `outbox()`. Then `wh.with(tx).send()` writes the row with the same transaction client as your own writes.
+
+```ts title="src/webhooks.ts"
+import { webhooks, outbox } from "@typedhook/sdk";
+import { prismaOutboxAdapter } from "@typedhook/prisma";
+import type { Prisma } from "@prisma/client";
+
+export const wh = webhooks({
+  events,
+  subscribers,
+  signing: { secret: process.env.WEBHOOK_SECRET! },
+  delivery: outbox(prismaOutboxAdapter<Prisma.TransactionClient>(prisma)),
+});
+
+await prisma.$transaction(async (tx) => {
+  const invoice = await tx.invoice.create({ data });
+  await wh.with(tx).send({
+    event: "invoice.paid",
+    subject: invoice.accountId,
+    data: { invoiceId: invoice.id, amountCents: invoice.total },
+  });
+});
+```
+
+<Callout>
+**This is the one place `send()` throws.** If the insert fails, the error propagates so your transaction rolls back. Validation errors still return `{ ok: false }`.
+</Callout>
+
+## Run a worker
+
+The worker claims due rows, signs each one with a fresh timestamp and posts it. Keep it running in a long-lived process, or call `tick()` from a cron job.
+
+```ts tab="Long-running"
+const worker = wh.worker({
+  pollIntervalMs: 1000,
+  batch: 100,
+  hooks: {
+    onDead: (row, error) => alerts.notify(`webhook ${row.eventId} died: ${error}`),
+  },
+});
+
+worker.start();
+process.on("SIGTERM", () => worker.stop()); // waits for in-flight deliveries
+```
+
+```ts tab="Cron"
+// app/api/cron/webhooks/route.ts
+import { wh } from "@/lib/webhooks";
+
+export async function GET() {
+  const report = await wh.worker().tick(); // one claim + deliver pass
+  return Response.json(report); // { claimed, delivered, retried, dead }
+}
+```
+
+| Option           | Default | What it does                                                                        |
+| ---------------- | ------- | ----------------------------------------------------------------------------------- |
+| `pollIntervalMs` | 1000    | Wait between ticks when running with `start()`                                      |
+| `batch`          | 100     | Rows claimed per tick                                                               |
+| `timeoutMs`      | 10000   | Per-request timeout. A timeout counts as a failed attempt                           |
+| `hooks`          | —       | `onDelivered`, `onRetry`, `onDead`, `onError`. A throwing hook never stops the loop |
+| `fetchImpl`      | fetch   | Swap the HTTP client, for tests or proxies                                          |
+
+## Delivery guarantees
+
+<Rules>
+1. **At least once.** A worker that crashes mid-delivery leaves its rows claimed. They become due again and are sent again, so receivers must dedupe on `webhook-id`.
+2. **Safe with many workers** if `claim` marks the rows it returns. The Prisma adapter uses `FOR UPDATE SKIP LOCKED` and pushes `nextAttemptAt` forward.
+3. **Checked by the compiler.** `wh.with()` and `wh.worker()` only exist when `delivery` is `outbox(...)`. Calling them otherwise is a type error.
+4. **No redirects.** A 3xx counts as a failed attempt, so a signed payload is never replayed to another host.
+</Rules>
+
+## Adapters
+
+Use the Prisma adapter on Postgres, `memoryAdapter()` in tests, or write your own in five functions.
+
+<AdapterGrid
+  adapters={[
+    { name: "Prisma", status: "live", href: "/docs/prisma-adapter" },
+    { name: "Memory", status: "tests", href: "/docs/testing" },
+    { name: "Drizzle", status: "soon", href: "https://github.com/ThallesP/webhooks/issues/4" },
+    { name: "Kysely", status: "soon", href: "https://github.com/ThallesP/webhooks/issues/5" },
+    { name: "TypeORM", status: "soon", href: "https://github.com/ThallesP/webhooks/issues/6" },
+    { name: "MikroORM", status: "soon", href: "https://github.com/ThallesP/webhooks/issues/7" },
+    { name: "Sequelize", status: "soon", href: "https://github.com/ThallesP/webhooks/issues/8" },
+    { name: "Knex", status: "soon", href: "https://github.com/ThallesP/webhooks/issues/9" },
+    { name: "MongoDB", status: "soon", href: "https://github.com/ThallesP/webhooks/issues/10" },
+  ]}
+/>

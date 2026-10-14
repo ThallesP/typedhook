@@ -1,0 +1,64 @@
+---
+title: Direct delivery
+description: The default. send() posts to every subscriber right away and retries in memory.
+---
+
+When you don't pass `delivery`, `webhooks()` uses `direct()`. `send()` signs the event and posts it to every subscriber, in parallel, then resolves once each one has succeeded or run out of attempts.
+
+```ts
+import { direct, webhooks } from "@typedhook/sdk";
+
+const wh = webhooks({
+  events,
+  subscribers,
+  signing: { secret: process.env.WEBHOOK_SECRET! },
+  delivery: direct({ maxAttempts: 5, timeoutMs: 10_000 }),
+});
+```
+
+## Reading the result
+
+`result.ok` only says the event was valid and sent out. Check each delivery to see whether it landed:
+
+```ts
+const result = await wh.send({ event: "invoice.paid", subject: "acct_42", data });
+if (!result.ok) return console.error(result.error);
+
+for (const delivery of result.value.deliveries) {
+  if (!delivery.delivered) console.warn(delivery.url, delivery.attempts, delivery.error);
+}
+```
+
+Each delivery has `url`, `delivered` and `attempts`. A delivered one has the response `status`, a failed one has the last `error`, like `endpoint responded 503` or `request failed: …`.
+
+## Retries
+
+Any 2xx counts as delivered. Anything else is a failed attempt: a non-2xx status, a network error, or no answer within `timeoutMs`. Between attempts, `send()` waits `backoffMs(failedAttempts)`, by default `min(30s, 500ms · 2^(n−1))`:
+
+| After failed attempt | Wait  |
+| -------------------- | ----- |
+| `1`                  | 0.5s  |
+| `2`                  | 1s    |
+| `3`                  | 2s    |
+| `4`                  | 4s    |
+
+With the default 5 attempts, a dead endpoint keeps `send()` waiting at least 7.5 seconds, plus the time each request takes. Every attempt is signed again with a fresh timestamp, so a retry never falls outside the receiver's tolerance window.
+
+<Callout type="warn">
+**Retries live in memory.** If the process crashes or restarts while `send()` is waiting, the remaining attempts are lost. Use the [outbox](/docs/outbox) for events that must arrive.
+</Callout>
+
+## Redirects
+
+Redirects are not followed. A 3xx is a failed attempt, so a signed payload is never forwarded to another host.
+
+## Options
+
+| Option        | Default                          | What it does                                    |
+| ------------- | -------------------------------- | ----------------------------------------------- |
+| `maxAttempts` | `5`                              | Attempts per subscriber, including the first    |
+| `backoffMs`   | `min(30_000, 500 * 2 ** (n - 1))` | Wait after the `n`th failed attempt, in ms     |
+| `timeoutMs`   | `10000`                          | Per-request timeout                             |
+| `fetchImpl`   | `fetch`                          | Swap the HTTP client, for tests or proxies      |
+
+`maxAttempts` must be a positive integer. Anything else throws a `RangeError` when you call `direct()`. See the [`direct()` reference](/docs/reference/direct).

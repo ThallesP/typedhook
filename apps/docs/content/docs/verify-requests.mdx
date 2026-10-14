@@ -1,0 +1,127 @@
+---
+title: Verify requests
+description: Check that a webhook came from its sender and is not a replay. Zero dependencies, and it never throws on a bad request.
+---
+
+`@typedhook/verify` checks the Standard Webhooks signature with WebCrypto. It reads `webhook-*` headers and falls back to `svix-*`, so it also verifies webhooks from senders that use Svix.
+
+<RuntimeList />
+
+## Install
+
+```package-install
+npm install @typedhook/verify
+```
+
+## Verify a request
+
+Create the verifier once, at startup. A missing or malformed secret, or a bad option, throws there, so it fails your deploy instead of every request.
+
+```ts tab="Next.js"
+// app/api/webhooks/route.ts
+import { createVerifier } from "@typedhook/verify";
+
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+export async function POST(req: Request) {
+  const result = await verifier.verify(req);
+  if (!result.ok) return new Response(result.reason, { status: 400 });
+
+  result.id;        // "evt_3f1c…", same on every retry
+  result.timestamp; // Date
+  result.payload;   // { event, subject, data }
+  return new Response(null, { status: 204 });
+}
+```
+
+```ts tab="Hono"
+// src/index.ts
+import { Hono } from "hono";
+import { createVerifier } from "@typedhook/verify";
+
+const app = new Hono();
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+app.post("/webhooks", async (c) => {
+  const result = await verifier.verify(c.req.raw);
+  if (!result.ok) return c.text(result.reason, 400);
+  return c.body(null, 204);
+});
+
+export default app;
+```
+
+```ts tab="Workers"
+// src/index.ts
+import { createVerifier } from "@typedhook/verify";
+
+export default {
+  async fetch(req: Request, env: { WEBHOOK_SECRET: string }) {
+    const verifier = createVerifier(env.WEBHOOK_SECRET);
+    const result = await verifier.verify(req);
+    if (!result.ok) return new Response(result.reason, { status: 400 });
+    return new Response(null, { status: 204 });
+  },
+};
+```
+
+```ts tab="Express"
+// src/server.ts
+import express from "express";
+import { createVerifier } from "@typedhook/verify";
+
+const app = express();
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+app.post("/webhooks", express.raw({ type: "application/json" }), async (req, res) => {
+  const result = await verifier.verifyPayload(req.body, req.headers);
+  res.status(result.ok ? 204 : 400).end();
+});
+```
+
+<Callout type="warn">
+**Express and Fastify: pass the raw body.** Parsed and re-serialized JSON changes the bytes and breaks the signature. Use `express.raw({ type: "application/json" })` and `verifier.verifyPayload(req.body, req.headers)`.
+</Callout>
+
+## Failure reasons
+
+`verify()` resolves to `{ ok: false, reason }` instead of throwing. Checks run in this order, and the body is only read once the headers pass.
+
+<CheckOrder stages={["headers", "id", "timestamp", "body", "signature", "JSON"]} />
+
+| Reason                       | When                                                                              | Stage     |
+| ---------------------------- | --------------------------------------------------------------------------------- | --------- |
+| `missing_headers`            | No `webhook-id`, `-timestamp` or `-signature` (or `svix-*`)                       | headers   |
+| `invalid_id`                 | The id contains a dot, which the spec forbids                                     | headers   |
+| `invalid_timestamp`          | The timestamp is not an integer of seconds                                        | headers   |
+| `timestamp_out_of_tolerance` | More than ±300s from now. Change it with `toleranceSec`                           | headers   |
+| `unreadable_body`            | The request body was already read or the stream aborted                           | body      |
+| `invalid_secret`             | The secret could not be imported as an HMAC key                                   | signature |
+| `invalid_signature`          | None of the `v1,` signatures match (up to 8 are tried, for key rotation)          | signature |
+| `invalid_json`               | Signature is valid but the body is not JSON                                       | JSON      |
+
+## Handle duplicates
+
+Senders retry until they get a 2xx, so the same webhook can arrive twice, or after a newer one. `result.id` is the same on every retry. Record it and skip ids you have already processed.
+
+```ts title="app/api/webhooks/route.ts"
+const result = await verifier.verify<Events>(req);
+if (!result.ok) return new Response(result.reason, { status: 400 });
+
+const fresh = await db.processedWebhook.createMany({
+  data: [{ id: result.id }],
+  skipDuplicates: true,
+});
+if (fresh.count === 0) return new Response(null, { status: 204 }); // seen it
+
+await handle(result.payload);
+return new Response(null, { status: 204 });
+```
+
+## Secrets
+
+Secrets that start with `whsec_` are base64-decoded, like Svix secrets. Anything else is used as plain text. An empty secret, or `whsec_` followed by invalid base64, throws in `createVerifier()`.
+
+<Callout icon="scan-eye">
+**The verifier checks who sent it, not its shape.** `verify<Events>()` types the payload but does not validate it. If you do not fully trust the sender, parse `result.payload` with a schema.
+</Callout>

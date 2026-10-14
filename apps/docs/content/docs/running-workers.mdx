@@ -1,0 +1,77 @@
+---
+title: Running workers
+description: Deliver outbox rows from a long-running process or a cron job, and know what happened to each one.
+---
+
+`wh.worker()` returns a worker for your outbox. It only exists when `delivery` is `outbox(...)`. Create one per process.
+
+```ts
+const worker = wh.worker({ pollIntervalMs: 1000, batch: 100 });
+```
+
+## Long-running
+
+`start()` runs a tick right away, then schedules the next one `pollIntervalMs` after each tick finishes. `stop()` cancels the next tick and resolves once the deliveries in flight are done.
+
+```ts
+worker.start();
+
+process.on("SIGTERM", async () => {
+  await worker.stop();
+  process.exit(0);
+});
+```
+
+## From a cron job
+
+`tick()` runs a single pass: claim up to `batch` due rows, deliver them, and report what happened. Call it from any scheduler instead of `start()`.
+
+```ts title="app/api/cron/webhooks/route.ts"
+export async function GET() {
+  const report = await wh.worker().tick();
+  return Response.json(report);
+}
+```
+
+A tick returns `{ claimed, delivered, retried, dead }`. Rows that failed are only tried again on a tick after their `nextAttemptAt`, so the cron interval adds to the backoff.
+
+## What a tick does
+
+For each claimed row, the worker signs the stored body with a fresh timestamp and posts it. Then:
+
+| Outcome                                  | Row update                                      | Hook          |
+| ---------------------------------------- | ----------------------------------------------- | ------------- |
+| 2xx                                      | `status: "delivered"`                           | `onDelivered` |
+| Failure, attempts left                   | `attempts + 1`, `nextAttemptAt`, `lastError`    | `onRetry`     |
+| Failure on the last attempt              | `status: "dead"`, `attempts`, `lastError`       | `onDead`      |
+
+The number of attempts and the backoff come from [`outbox()`](/docs/reference/outbox): 20 attempts, waiting `min(1h, 30s · 2^(n−1))` after the `n`th failure. A dead endpoint gets about 13 hours of retries before its row is marked dead.
+
+## Hooks
+
+```ts
+const worker = wh.worker({
+  hooks: {
+    onDelivered: (row) => metrics.increment("webhooks.delivered"),
+    onRetry: (row, error) => log.warn({ url: row.url, error }, "webhook retry"),
+    onDead: (row, error) => alerts.notify(`webhook ${row.eventId} died: ${error}`),
+    onError: (error) => log.error(error, "outbox worker"),
+  },
+});
+```
+
+`onError` gets errors from the adapter itself, like a failed `claim` or `complete` when the database is down. The loop keeps polling after them. A hook that throws is ignored and never stops the loop.
+
+## Many workers
+
+You can run as many workers as you like, as long as the adapter's `claim` marks the rows it returns. The [Prisma adapter](/docs/prisma-adapter) does. `memoryAdapter()` doesn't, so use it with one worker.
+
+## Options
+
+| Option           | Default | What it does                                                    |
+| ---------------- | ------- | --------------------------------------------------------------- |
+| `pollIntervalMs` | 1000    | Wait between ticks when running with `start()`                  |
+| `batch`          | 100     | Rows claimed per tick                                           |
+| `timeoutMs`      | 10000   | Per-request timeout. A timeout counts as a failed attempt       |
+| `hooks`          | —       | `onDelivered`, `onRetry`, `onDead`, `onError`                   |
+| `fetchImpl`      | fetch   | Swap the HTTP client, for tests or proxies                      |

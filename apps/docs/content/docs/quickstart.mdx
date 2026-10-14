@@ -1,0 +1,124 @@
+---
+title: Quickstart
+description: Send a signed webhook from one app and verify it in another. About five minutes, no database needed.
+---
+
+<Steps>
+<Step>
+
+### Install the sender
+
+Bring any Standard Schema library. These docs use zod.
+
+```package-install
+npm install @typedhook/sdk zod
+```
+
+</Step>
+<Step>
+
+### Define your events
+
+Each key is an event name, each value is the schema of its `data`. Export `Events` so the apps that receive them can import the types.
+
+```ts title="src/events.ts"
+import { type EventUnion } from "@typedhook/sdk";
+import { z } from "zod";
+
+export const events = {
+  "invoice.paid": z.object({ invoiceId: z.string(), amountCents: z.number() }),
+  "member.invited": z.object({
+    email: z.string().email(),
+    role: z.enum(["admin", "viewer"]),
+  }),
+};
+
+export type Events = EventUnion<typeof events>;
+```
+
+</Step>
+<Step>
+
+### Create the sender
+
+`subscribers` can be a static list or a function that looks them up. A subscriber's own `secret` wins over `signing.secret`.
+
+```ts title="src/webhooks.ts"
+import { webhooks } from "@typedhook/sdk";
+import { events } from "./events";
+
+export const wh = webhooks({
+  events,
+  subscribers: [{ url: "https://hooks.northwind.dev/billing" }],
+  signing: { secret: process.env.WEBHOOK_SECRET! }, // whsec_…
+});
+```
+
+</Step>
+<Step>
+
+### Send an event
+
+`send()` doesn't throw. Invalid data, an unknown event or a failing resolver come back as `{ ok: false, error }`.
+
+```ts title="src/billing.ts"
+const result = await wh.send({
+  event: "invoice.paid",
+  subject: "acct_42", // who the event is about
+  data: { invoiceId: "inv_1", amountCents: 4200 },
+});
+
+if (!result.ok) throw new Error(result.error);
+result.value.deliveries; // [{ url, delivered, attempts, status }]
+```
+
+<WireRequest
+  label="What the subscriber receives"
+  url="https://hooks.northwind.dev/billing"
+  status="204 No Content"
+  headers={{
+    "webhook-id": "evt_3f1c9a7e-52b4-4d0e-9b61-0c8e2f7a14d5",
+    "webhook-timestamp": "1791655200",
+    "webhook-signature": "v1,K5oZfzN95Z9UVu1EsfQmfVNQhnkZ2pj9o9NDN/H/pI4=",
+    "content-type": "application/json",
+  }}
+  body={`{
+  "event": "invoice.paid",
+  "subject": "acct_42",
+  "data": { "invoiceId": "inv_1", "amountCents": 4200 }
+}`}
+/>
+
+</Step>
+<Step>
+
+### Verify it on the other side
+
+In the receiving app, install `@typedhook/verify` and check every request before you trust it.
+
+```ts title="app/api/webhooks/route.ts"
+import { createVerifier } from "@typedhook/verify";
+import type { Events } from "@acme/sdk";
+
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+export async function POST(req: Request) {
+  const result = await verifier.verify<Events>(req);
+  if (!result.ok) return new Response(result.reason, { status: 400 });
+  if (result.payload.event === "invoice.paid") {
+    result.payload.data.amountCents; // number
+  }
+  return new Response(null, { status: 204 });
+}
+```
+
+</Step>
+</Steps>
+
+<Callout type="warn">
+**Retries live in memory by default.** `direct()` makes up to 5 attempts with backoff, but a crash loses them. If an event must not be lost, use the [outbox](/docs/outbox).
+</Callout>
+
+<Callout icon="copy-check">
+**Expect duplicates.** Webhooks can arrive more than once and out of order. `result.id` is the same on every retry, so store it and skip ids you have seen.
+</Callout>

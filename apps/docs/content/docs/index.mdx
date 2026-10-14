@@ -1,0 +1,45 @@
+---
+title: Introduction
+heading: Type-safe webhooks *for* TypeScript
+description: Send, store and verify webhooks in the Standard Webhooks format.
+---
+
+Define events as schemas. `send()` validates the data and delivers it, signed, to each subscriber.
+
+```ts title="webhooks.ts"
+import { webhooks } from "@typedhook/sdk";
+import { z } from "zod"; // or valibot, arktype
+
+export const wh = webhooks({
+  events: {
+    "invoice.paid": z.object({ invoiceId: z.string(), amountCents: z.number() }),
+  },
+  subscribers: async ({ event, subject }) => db.findSubscribers(event, subject),
+  signing: { secret: process.env.WEBHOOK_SECRET! },
+});
+
+const result = await wh.send({
+  event: "invoice.paid",
+  subject: "acct_42",
+  data: { invoiceId: "inv_1", amountCents: 4200 },
+});
+if (!result.ok) console.error(result.error);
+```
+
+## Features
+
+<FeatureCards>
+  <FeatureCard index="01" icon="braces" title="Typed events">Use zod, valibot or arktype. The event name types `data`.</FeatureCard>
+  <FeatureCard index="02" icon="database" title="Transactional outbox">Events are saved in your transaction and retried by a worker.</FeatureCard>
+  <FeatureCard index="03" icon="shield-check" title="Zero-dependency verifier">Runs on Node 20+, Bun, Deno, Workers and edge.</FeatureCard>
+  <FeatureCard index="04" icon="package" title="Typed payloads">Export `EventUnion`. Receivers import it as a type.</FeatureCard>
+</FeatureCards>
+
+## Read next
+
+<LinkCards>
+  <LinkCard href="/docs/quickstart" title="Quickstart" description="Send and verify your first event" />
+  <LinkCard href="/docs/outbox" title="How the outbox works" description="Delivery that survives crashes" />
+  <LinkCard href="/docs/verify-requests" title="Verify requests" description="Check signatures in any framework" />
+  <LinkCard href="/docs/typed-payloads" title="Typed payloads" description="Share event types with receivers" />
+</LinkCards>

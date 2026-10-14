@@ -1,0 +1,67 @@
+---
+title: outbox()
+description: Store events in your database from send(), and deliver them from a worker.
+---
+
+```ts
+import { outbox } from "@typedhook/sdk";
+
+function outbox<Tx>(
+  adapter: OutboxAdapter<Tx>,
+  opts?: {
+    maxAttempts?: number;
+    backoffMs?: (attempts: number) => number;
+  },
+): OutboxDelivery<Tx>;
+```
+
+```ts
+const wh = webhooks({
+  events,
+  subscribers,
+  signing: { secret: process.env.WEBHOOK_SECRET! },
+  delivery: outbox(prismaOutboxAdapter<Prisma.TransactionClient>(prisma), { maxAttempts: 20 }),
+});
+```
+
+`Tx` comes from the adapter and becomes the type `wh.with(tx)` accepts.
+
+## Options
+
+| Option        | Default                                         | What it does                                       |
+| ------------- | ----------------------------------------------- | -------------------------------------------------- |
+| `maxAttempts` | `20`                                            | Attempts per row before it's marked `dead`         |
+| `backoffMs`   | `(n) => Math.min(3_600_000, 30_000 * 2 ** (n - 1))` | Wait in ms after `n` failed attempts, starting at 1 |
+
+The default backoff doubles from 30 seconds and stops growing at an hour:
+
+| After failed attempt | 1   | 2  | 3  | 4  | 5  | 6   | 7   | 8 and later |
+| -------------------- | --- | -- | -- | -- | -- | --- | --- | ----------- |
+| Wait                 | 30s | 1m | 2m | 4m | 8m | 16m | 32m | 1h          |
+
+With 20 attempts, a row that never succeeds is retried for about 13 hours before it's marked `dead`.
+
+## Behavior
+
+- `send()` validates the event, resolves subscribers and inserts one row per subscriber. It makes no HTTP requests.
+- When there are no subscribers, nothing is inserted.
+- If the insert fails, `send()` rejects instead of returning an error, so your transaction rolls back.
+- A [worker](/docs/reference/worker) delivers the rows.
+
+## Throws
+
+`RangeError` when `maxAttempts` isn't a positive integer.
+
+## OutboxAdapter
+
+```ts
+interface OutboxAdapter<Tx = unknown> {
+  insert: (rows: OutboxRow[], tx?: Tx) => Promise<void>;
+  claim: (limit: number, now: Date) => Promise<OutboxRow[]>;
+  complete: (rowId: string) => Promise<void>;
+  retry: (rowId: string, attempts: number, nextAttemptAt: Date, lastError: string) => Promise<void>;
+  dead: (rowId: string, attempts: number, lastError: string) => Promise<void>;
+}
+```
+
+See [Write an adapter](/docs/write-an-adapter) for the contract of each function and the `OutboxRow` fields.

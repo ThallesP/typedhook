@@ -1,0 +1,79 @@
+---
+title: Testing
+description: Test your outbox code without a database or a network, using memoryAdapter() and a stubbed fetch.
+---
+
+`memoryAdapter()` keeps the outbox in an array. Pair it with a `fetchImpl` stub and drive the worker with `tick()`, and a test runs the whole send, claim and deliver path in memory.
+
+```ts title="billing.test.ts"
+import { expect, test } from "bun:test";
+import { memoryAdapter, outbox, webhooks } from "@typedhook/sdk";
+import { events } from "./events";
+
+test("paying an invoice sends invoice.paid", async () => {
+  const adapter = memoryAdapter();
+  const wh = webhooks({
+    events,
+    subscribers: [{ url: "https://consumer.test/hook" }],
+    signing: { secret: "test-secret" },
+    delivery: outbox(adapter, { backoffMs: () => 0 }),
+  });
+
+  await wh.send({ event: "invoice.paid", subject: "acct_42", data: { invoiceId: "inv_1", amountCents: 4200 } });
+  expect(adapter.rows).toHaveLength(1);
+  expect(adapter.rows[0]).toMatchObject({ eventType: "invoice.paid", status: "pending" });
+
+  const fetchImpl = async () => new Response(null, { status: 204 });
+  const report = await wh.worker({ fetchImpl }).tick();
+
+  expect(report).toEqual({ claimed: 1, delivered: 1, retried: 0, dead: 0 });
+  expect(adapter.rows[0]?.status).toBe("delivered");
+});
+```
+
+It works the same with Vitest or Jest. In Bun, `typeof fetch` has extra properties, so you may need to cast the stub.
+
+## What the adapter exposes
+
+| Property | What it is                                                       |
+| -------- | ---------------------------------------------------------------- |
+| `rows`   | Every row, with its current `status`, `attempts` and `lastError` |
+| `lastTx` | The `tx` from the last `insert`, to check `wh.with(tx)` used it  |
+
+`rows` is live: it reflects every update the worker makes.
+
+## Retries in tests
+
+A failed delivery is only claimed again once its `nextAttemptAt` has passed. Pass `backoffMs: () => 0` to `outbox()` so the next `tick()` retries right away, and a small `maxAttempts` to reach `dead` quickly:
+
+```ts
+const wh = webhooks({
+  events,
+  subscribers: [{ url: "https://consumer.test/hook" }],
+  signing: { secret: "test-secret" },
+  delivery: outbox(adapter, { maxAttempts: 2, backoffMs: () => 0 }),
+});
+
+const worker = wh.worker({ fetchImpl: async () => new Response(null, { status: 500 }) });
+await worker.tick(); // { claimed: 1, delivered: 0, retried: 1, dead: 0 }
+await worker.tick(); // { claimed: 1, delivered: 0, retried: 0, dead: 1 }
+```
+
+## Testing direct delivery
+
+Without an outbox, pass `fetchImpl` to `direct()` and read the report from `send()`:
+
+```ts
+import { direct, webhooks } from "@typedhook/sdk";
+
+const wh = webhooks({
+  events,
+  subscribers: [{ url: "https://consumer.test/hook" }],
+  signing: { secret: "test-secret" },
+  delivery: direct({ fetchImpl: async () => new Response(null, { status: 204 }) }),
+});
+```
+
+<Callout type="warn">
+**One worker only.** `memoryAdapter()` doesn't mark claimed rows, so two workers on it would deliver the same row twice. Use it for tests and local development.
+</Callout>
