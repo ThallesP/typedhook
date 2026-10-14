@@ -1,6 +1,6 @@
 {
   "name": "@typedhook/mikro-orm",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MikroORM outbox adapter for @typedhook/sdk — FOR UPDATE SKIP LOCKED claiming on Postgres and MySQL, safe for concurrent workers",
   "type": "module",
   "license": "MIT",
