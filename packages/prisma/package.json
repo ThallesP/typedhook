@@ -1,6 +1,6 @@
 {
   "name": "@typedhook/prisma",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Prisma (Postgres) outbox adapter for @typedhook/sdk — FOR UPDATE SKIP LOCKED claiming, safe for concurrent workers",
   "type": "module",
   "license": "MIT",

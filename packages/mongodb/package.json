@@ -1,6 +1,6 @@
 {
   "name": "@typedhook/mongodb",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MongoDB outbox adapter for @typedhook/sdk — atomic findOneAndUpdate claiming, safe for concurrent workers",
   "type": "module",
   "license": "MIT",
