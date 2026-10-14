@@ -1,0 +1,90 @@
+---
+title: webhooks()
+description: Create a sender from your events, subscribers and delivery mode.
+---
+
+```ts
+import { webhooks } from "@typedhook/sdk";
+
+function webhooks<E extends EventMap, S extends SubjectMode = undefined>(
+  config: WebhooksConfig<E> & { subject?: S; delivery?: DirectDelivery },
+): DirectWebhooks<E, S>;
+
+function webhooks<E extends EventMap, Tx, S extends SubjectMode = undefined>(
+  config: WebhooksConfig<E> & { subject?: S; delivery: OutboxDelivery<Tx> },
+): OutboxWebhooks<E, Tx, S>;
+```
+
+The return type depends on `delivery`. Pass `outbox(...)` and you get `with()` and `worker()`. Leave it out, or pass `direct(...)`, and you only get `send()`.
+
+## Config
+
+| Option        | Type                                     | Default     | What it does                                                     |
+| ------------- | ---------------------------------------- | ----------- | ---------------------------------------------------------------- |
+| `events`      | `Record<string, StandardSchemaV1>`       | required    | Event names and the schema of each one's `data`                  |
+| `subscribers` | `Subscriber[] \| SubscriberResolver<E>`  | required    | Who receives events. See [Subscribers](/docs/subscribers)        |
+| `signing`     | `{ secret: string }`                     | —           | Secret for subscribers that don't have their own                 |
+| `subject`     | `"optional"`                             | —           | Makes `subject` optional in `send()`. It's required without it   |
+| `delivery`    | `DirectDelivery \| OutboxDelivery<Tx>`   | `direct()`  | [`direct()`](/docs/reference/direct) or [`outbox()`](/docs/reference/outbox) |
+
+## send()
+
+```ts
+send<K extends keyof E & string>(input: {
+  event: K;
+  subject: string; // optional with subject: "optional"
+  data: StandardSchemaV1.InferInput<E[K]>;
+}): Promise<Result<DirectSendReport>>; // Result<EnqueueReport> with outbox()
+```
+
+```ts
+type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+
+interface DirectSendReport {
+  eventId: string;
+  deliveries: { url: string; delivered: boolean; attempts: number; status?: number; error?: string }[];
+}
+
+interface EnqueueReport {
+  eventId: string;
+  enqueued: number; // one row per subscriber
+}
+```
+
+`send()` returns `{ ok: false, error }` instead of throwing. Possible errors:
+
+| `error`                                       | Cause                                                |
+| --------------------------------------------- | ---------------------------------------------------- |
+| `event "…" requires a subject`                | No `subject`, and the config doesn't make it optional |
+| `subject must be a non-empty string`          | `subject: ""`                                        |
+| `unknown event type "…"`                      | The event isn't in `events`                          |
+| `invalid payload for "…": …`                  | `data` failed the schema                             |
+| `schema validation threw for "…": …`          | The validator threw                                  |
+| `payload for "…" is not JSON-serializable: …` | The validated output can't be stringified            |
+| `subscriber resolver failed: …`               | The resolver threw or rejected                       |
+| `no signing secret for subscriber …`          | Neither the subscriber nor `signing` has a secret    |
+| `invalid signing secret for subscriber …`     | A `whsec_` secret without valid base64               |
+
+With `outbox()`, an error from the adapter's `insert` is not caught: `send()` rejects, so the surrounding transaction rolls back.
+
+## with(tx) and worker()
+
+Only on `outbox()` senders.
+
+```ts
+with(tx: Tx): { send(input): Promise<Result<EnqueueReport>> };
+worker(opts?: WorkerOpts): OutboxWorker;
+```
+
+`with(tx)` passes `tx` to the adapter's `insert`, so the row commits with your transaction. See [`worker()`](/docs/reference/worker).
+
+## Other exports
+
+| Export                          | What it is                                                         |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `EventUnion<typeof events>`     | The payloads as receivers get them. See [Typed payloads](/docs/typed-payloads) |
+| `ResolverEvent<typeof events>`  | What a subscriber resolver receives                                |
+| `Jsonify<T>`                    | `T` after a JSON round trip                                        |
+| `memoryAdapter()`               | In-memory outbox adapter. See [Testing](/docs/testing)             |
+| `signPayload()`, `isValidSecret()` | The signing helpers. See [Signing secrets](/docs/signing-secrets) |
+| `ok()`, `err()`                 | Build a `Result`                                                   |

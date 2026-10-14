@@ -1,0 +1,114 @@
+---
+title: Frameworks
+description: Verify webhooks in Next.js, Hono, Cloudflare Workers, Express and Fastify.
+---
+
+There are two ways in, depending on what your framework hands you:
+
+- `verifier.verify(request)` takes a Fetch API `Request`. Use it with Next.js, Hono, Remix, Cloudflare Workers, Bun and Deno.
+- `verifier.verifyPayload(body, headers)` takes the raw body as a string or bytes, plus the headers. Use it with Express, Fastify and anything else built on Node's `http` module.
+
+Both return the same result and never throw.
+
+## Next.js
+
+A route handler in the App Router receives a `Request`:
+
+```ts title="app/api/webhooks/route.ts"
+import { createVerifier } from "@typedhook/verify";
+
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+export async function POST(req: Request) {
+  const result = await verifier.verify(req);
+  if (!result.ok) return new Response(result.reason, { status: 400 });
+  await handle(result.payload);
+  return new Response(null, { status: 204 });
+}
+```
+
+`verify()` reads the body. If you need it again afterwards, pass `req.clone()`.
+
+## Hono
+
+`c.req.raw` is the underlying `Request`:
+
+```ts title="src/index.ts"
+import { Hono } from "hono";
+import { createVerifier } from "@typedhook/verify";
+
+const app = new Hono();
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+app.post("/webhooks", async (c) => {
+  const result = await verifier.verify(c.req.raw);
+  if (!result.ok) return c.text(result.reason, 400);
+  return c.body(null, 204);
+});
+```
+
+## Cloudflare Workers
+
+Secrets arrive on `env`, so create the verifier inside `fetch`:
+
+```ts title="src/index.ts"
+import { createVerifier } from "@typedhook/verify";
+
+export default {
+  async fetch(req: Request, env: { WEBHOOK_SECRET: string }) {
+    const verifier = createVerifier(env.WEBHOOK_SECRET);
+    const result = await verifier.verify(req);
+    if (!result.ok) return new Response(result.reason, { status: 400 });
+    return new Response(null, { status: 204 });
+  },
+};
+```
+
+## Express
+
+The signature covers the exact bytes that were sent. `express.json()` parses them, and re-serializing the result rarely gives the same bytes back. Take the raw body for this route instead:
+
+```ts title="src/server.ts"
+import express from "express";
+import { createVerifier } from "@typedhook/verify";
+
+const app = express();
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+app.post("/webhooks", express.raw({ type: "application/json" }), async (req, res) => {
+  const result = await verifier.verifyPayload(req.body, req.headers);
+  if (!result.ok) return res.status(400).send(result.reason);
+  await handle(result.payload);
+  res.status(204).end();
+});
+```
+
+`express.raw()` gives you a `Buffer`, which `verifyPayload()` accepts as bytes. Register the route before any global `express.json()`, or that parser consumes the body first.
+
+## Fastify
+
+Fastify parses JSON by default. Keep the body as a `Buffer` with a content type parser:
+
+```ts title="src/server.ts"
+import Fastify from "fastify";
+import { createVerifier } from "@typedhook/verify";
+
+const app = Fastify();
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+app.addContentTypeParser("application/json", { parseAs: "buffer" }, (_req, body, done) => {
+  done(null, body);
+});
+
+app.post<{ Body: Buffer }>("/webhooks", async (request, reply) => {
+  const result = await verifier.verifyPayload(request.body, request.headers);
+  if (!result.ok) return reply.code(400).send(result.reason);
+  return reply.code(204).send();
+});
+```
+
+The parser applies to every route in that Fastify instance. Register the webhook route in its own plugin if other routes need parsed JSON.
+
+## Headers from anywhere
+
+`verifyPayload()` takes a `Headers` object or a plain object. Plain objects can use any casing, and array values use their first entry, so Node's `IncomingHttpHeaders` work as they are.

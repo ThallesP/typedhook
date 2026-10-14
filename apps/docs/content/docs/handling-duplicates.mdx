@@ -1,0 +1,51 @@
+---
+title: Handling duplicates
+description: Webhooks can arrive more than once and out of order. Make your handler safe to run twice.
+---
+
+Delivery is at least once. The same webhook arrives again when:
+
+- your handler worked, but its 2xx was lost or came after the sender's timeout,
+- an outbox worker crashed after posting, before it marked the row delivered,
+- the sender retried a failed attempt while an earlier one was still being processed.
+
+## Store the id
+
+`result.id` comes from the `webhook-id` header. It is the same on every retry of one event, so record it and skip ids you have already processed. A unique constraint makes the check atomic:
+
+```ts title="app/api/webhooks/route.ts"
+const result = await verifier.verify<Events>(req);
+if (!result.ok) return new Response(result.reason, { status: 400 });
+
+const fresh = await db.processedWebhook.createMany({
+  data: [{ id: result.id }],
+  skipDuplicates: true,
+});
+if (fresh.count === 0) return new Response(null, { status: 204 }); // seen it
+
+await handle(result.payload);
+return new Response(null, { status: 204 });
+```
+
+In SQL, it's `INSERT … ON CONFLICT (id) DO NOTHING` and a check of the affected row count.
+
+Answer duplicates with a 2xx. Anything else counts as a failed attempt, and the sender keeps retrying.
+
+## Record it with the work
+
+If `handle()` fails after the id is stored, the retry is skipped and the event is lost. Store the id in the same transaction as the work it triggers:
+
+```ts
+const handled = await db.$transaction(async (tx) => {
+  const fresh = await tx.processedWebhook.createMany({ data: [{ id: result.id }], skipDuplicates: true });
+  if (fresh.count === 0) return false;
+  await applyPayment(tx, result.payload);
+  return true;
+});
+```
+
+If the transaction rolls back, the id goes with it, and the sender's next attempt is processed.
+
+## Out of order
+
+Retries mean an older event can land after a newer one. Don't use `result.timestamp` to order them: it's when that attempt was signed, and every retry gets a fresh one. Put the time the change happened in the event's `data`, and ignore events older than what you've stored.

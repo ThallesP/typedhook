@@ -1,0 +1,41 @@
+---
+title: Subjects
+description: Say what each event is about, so you can route it to the right subscribers and your consumers can tell events apart.
+---
+
+The `subject` is the entity an event is about, in your own vocabulary: a user id, an account id, a row id. It is a string you pass to every `send()`:
+
+```ts
+await wh.send({
+  event: "invoice.paid",
+  subject: "acct_42",
+  data: { invoiceId: "inv_1", amountCents: 4200 },
+});
+```
+
+## Where it goes
+
+- To your [subscriber resolver](/docs/subscribers#a-resolver), so you can find the subscribers of one account.
+- Into the signed body, next to the event name: `{ "event": "invoice.paid", "subject": "acct_42", "data": { … } }`.
+- Onto the outbox row, in the `subject` column.
+
+## Required by default
+
+Multi-tenant apps almost always need it, so leaving it out is a type error. At runtime, `send()` also returns `event "…" requires a subject`, for callers without types. An empty string is rejected with `subject must be a non-empty string`.
+
+## Making it optional
+
+For a single-tenant app, set `subject: "optional"` in the config. Then you can leave it out, and the body carries `"subject": null`:
+
+```ts
+const wh = webhooks({
+  events,
+  subscribers: [{ url: "https://hooks.northwind.dev/billing" }],
+  signing: { secret: process.env.WEBHOOK_SECRET! },
+  subject: "optional",
+});
+
+await wh.send({ event: "invoice.paid", data: { invoiceId: "inv_1", amountCents: 4200 } });
+```
+
+That's why consumers see `subject: string | null` in [typed payloads](/docs/typed-payloads).

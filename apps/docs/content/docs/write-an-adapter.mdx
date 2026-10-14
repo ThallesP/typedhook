@@ -1,0 +1,78 @@
+---
+title: Write an adapter
+description: Store the outbox in any database by implementing five functions.
+---
+
+An adapter tells the outbox where rows live. It is an object with five functions:
+
+```ts
+import type { OutboxAdapter, OutboxRow } from "@typedhook/sdk";
+
+interface OutboxAdapter<Tx = unknown> {
+  insert: (rows: OutboxRow[], tx?: Tx) => Promise<void>;
+  claim: (limit: number, now: Date) => Promise<OutboxRow[]>;
+  complete: (rowId: string) => Promise<void>;
+  retry: (rowId: string, attempts: number, nextAttemptAt: Date, lastError: string) => Promise<void>;
+  dead: (rowId: string, attempts: number, lastError: string) => Promise<void>;
+}
+```
+
+`Tx` is your transaction type. It's what `wh.with(tx)` accepts, so type it precisely.
+
+## The row
+
+| Field           | Type                                    | Notes                                              |
+| --------------- | --------------------------------------- | -------------------------------------------------- |
+| `id`            | `string`                                | `obx_…`, primary key                               |
+| `eventId`       | `string`                                | `evt_…`, sent as `webhook-id`                      |
+| `eventType`     | `string`                                | The event name                                     |
+| `subject`       | `string \| null`                        | See [Subjects](/docs/subjects)                     |
+| `body`          | `string`                                | The JSON body, sent verbatim                       |
+| `url`           | `string`                                | The subscriber's URL                               |
+| `secret`        | `string \| null`                        | The signing secret                                 |
+| `attempts`      | `number`                                | Failed attempts so far                             |
+| `nextAttemptAt` | `Date`                                  | When the row is due                                |
+| `status`        | `"pending" \| "delivered" \| "dead"`    |                                                    |
+| `lastError`     | `string \| null`                        | The last failure, like `endpoint responded 503`    |
+| `createdAt`     | `Date`                                  |                                                    |
+
+Store `body` and `secret` exactly as given. The worker signs `body` as-is, and any change breaks the signature.
+
+## What each function must do
+
+| Function   | Contract                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------ |
+| `insert`   | Write all rows. Use `tx` when it's passed, your own connection when it isn't. Reject on failure.       |
+| `claim`    | Return up to `limit` rows with `status: "pending"` and `nextAttemptAt <= now`, oldest due first.        |
+| `complete` | Set `status` to `"delivered"`.                                                                         |
+| `retry`    | Set `attempts`, `nextAttemptAt` and `lastError`. Keep `status` pending.                                |
+| `dead`     | Set `status` to `"dead"`, with `attempts` and `lastError`.                                             |
+
+`insert` is the only call that runs inside your transaction. When it rejects, `send()` rejects too, so your transaction rolls back.
+
+## Claiming with more than one worker
+
+If you run more than one worker, `claim` must mark the rows it returns so other workers skip them, for example by pushing `nextAttemptAt` forward. A lock alone isn't enough: it's released when `claim` returns, before the delivery happens.
+
+On Postgres, the [Prisma adapter](/docs/prisma-adapter) does it in one statement:
+
+```sql
+UPDATE "WebhookOutbox" SET "nextAttemptAt" = $1 -- now + claim timeout
+WHERE "id" IN (
+  SELECT "id" FROM "WebhookOutbox"
+  WHERE "status" = 'pending' AND "nextAttemptAt" <= $2 -- now
+  ORDER BY "nextAttemptAt"
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+)
+RETURNING *
+```
+
+If a worker dies after claiming, the row becomes due again once that timeout passes, and another worker sends it. That's why delivery is at least once. Pick a timeout longer than the worker's `timeoutMs`.
+
+## Reference implementations
+
+- [`packages/prisma/src/index.ts`](https://github.com/ThallesP/webhooks/blob/main/packages/prisma/src/index.ts): Postgres through Prisma.
+- [`memoryAdapter()` in `packages/sdk/src/outbox.ts`](https://github.com/ThallesP/webhooks/blob/main/packages/sdk/src/outbox.ts): an array, for tests.
+
+Adapters for Drizzle, Kysely, TypeORM, MikroORM, Sequelize, Knex and MongoDB are [planned](/docs/roadmap#more-adapters).

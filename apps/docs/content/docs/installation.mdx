@@ -1,0 +1,40 @@
+---
+title: Installation
+description: Install the sender, the verifier, or both.
+---
+
+Each package is installed on its own. A typical setup puts the sender in the app that emits events and the verifier in the apps that receive them.
+
+## The sender
+
+`@typedhook/sdk` sends webhooks. Install it with the schema library you already use. Any library that implements [Standard Schema](https://standardschema.dev) works: zod 3.24 or later, valibot and arktype.
+
+```package-install
+npm install @typedhook/sdk zod
+```
+
+It needs Node 20 or later, or Bun. It uses the global `fetch` and WebCrypto, and has no dependencies.
+
+## The verifier
+
+`@typedhook/verify` verifies webhooks you receive. It has no dependencies and only uses WebCrypto, so it runs on Node 20+, Bun, Deno, Cloudflare Workers and edge runtimes.
+
+```package-install
+npm install @typedhook/verify
+```
+
+You don't need the sender to use it. It verifies any webhook signed in the Standard Webhooks format, including ones sent through Svix.
+
+## The Prisma outbox
+
+`@typedhook/prisma` stores the [outbox](/docs/outbox) in Postgres with Prisma. Install it next to the sender, which is a peer dependency.
+
+```package-install
+npm install @typedhook/sdk @typedhook/prisma
+```
+
+Then add the outbox model to your schema. See [Prisma adapter](/docs/prisma-adapter).
+
+## Module formats
+
+All three packages ship ESM and CommonJS builds with their type declarations. Under Bun, the packages resolve to their TypeScript sources.

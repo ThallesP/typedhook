@@ -1,0 +1,102 @@
+---
+title: Prisma adapter
+description: Store the outbox in Postgres with Prisma. Claiming uses FOR UPDATE SKIP LOCKED, so any number of workers can run at once.
+---
+
+`@typedhook/prisma` is an outbox adapter for Prisma on Postgres. Rows are claimed with `FOR UPDATE SKIP LOCKED`, so concurrent workers never deliver the same row twice at the same time.
+
+<Callout type="warn">
+**Postgres only.** The claim query is raw SQL.
+</Callout>
+
+## Install
+
+```package-install
+npm install @typedhook/sdk @typedhook/prisma
+```
+
+## Schema
+
+Paste the model into `schema.prisma`, then create a migration. Keep Prisma's default column names (no `@map`): the raw claim query addresses them directly.
+
+```prisma title="prisma/schema.prisma"
+model WebhookOutbox {
+  id            String   @id
+  eventId       String
+  eventType     String
+  subject       String?
+  body          String
+  url           String
+  secret        String?
+  attempts      Int
+  nextAttemptAt DateTime
+  status        String
+  lastError     String?
+  createdAt     DateTime
+
+  @@index([status, nextAttemptAt])
+}
+```
+
+Renamed the model or mapped the table? Pass `{ model, table }` to match.
+
+## Usage
+
+```ts title="src/webhooks.ts"
+import { webhooks, outbox } from "@typedhook/sdk";
+import { prismaOutboxAdapter } from "@typedhook/prisma";
+import { PrismaClient, type Prisma } from "@prisma/client";
+import { z } from "zod";
+
+const prisma = new PrismaClient();
+
+const wh = webhooks({
+  events: { "user.created": z.object({ userId: z.string() }) },
+  subscribers: [{ url: "https://consumer.example/hook" }],
+  signing: { secret: process.env.WEBHOOK_SECRET! },
+  delivery: outbox(prismaOutboxAdapter<Prisma.TransactionClient>(prisma)),
+});
+
+await prisma.$transaction(async (tx) => {
+  const user = await tx.user.create({ data: { email: "a@b.c" } });
+  await wh.with(tx).send({
+    event: "user.created",
+    subject: user.id,
+    data: { userId: user.id },
+  });
+});
+
+wh.worker().start();
+```
+
+Pass `Prisma.TransactionClient` as the type argument. That's what makes `wh.with(tx)` accept the `tx` from `$transaction` and reject anything else.
+
+`send()` without `with()` inserts through the client you passed to the adapter, outside any transaction.
+
+## Options
+
+| Option           | Default           | What it does                                                                                                                                                         |
+| ---------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`          | `"webhookOutbox"` | Property on the client holding the model delegate                                                                                                                    |
+| `table`          | `"WebhookOutbox"` | Table name used by the raw claim query                                                                                                                               |
+| `claimTimeoutMs` | `60000`           | How long claimed rows are hidden from other workers. If a worker crashes mid-delivery, its rows become due again after this. Keep it above the worker's `timeoutMs`. |
+
+`table` must be a plain SQL identifier (letters, digits and underscores). Anything else throws when you create the adapter, and so does a `model` the client doesn't have.
+
+## How it claims
+
+```sql
+UPDATE "WebhookOutbox" SET "nextAttemptAt" = $1
+WHERE "id" IN (
+  SELECT "id" FROM "WebhookOutbox"
+  WHERE "status" = 'pending' AND "nextAttemptAt" <= $2
+  ORDER BY "nextAttemptAt"
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+)
+RETURNING *
+```
+
+- Claimed rows stay `status: "pending"`. Their `nextAttemptAt` is pushed `claimTimeoutMs` into the future, so other workers skip them. A crashed worker's rows are delivered again after the timeout: delivery is at least once.
+- `complete`, `retry` and `dead` are `updateMany` calls. Updating a row that was deleted is a no-op, not an error.
+- Rows are never deleted. Delivered and dead rows stay in the table with `status` set to `delivered` or `dead`, so clean them up on your own schedule.

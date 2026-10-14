@@ -1,0 +1,43 @@
+---
+title: Failure reasons
+description: Every reason verify() can return, in the order the checks run, and what usually causes each one.
+---
+
+A failed verification resolves to `{ ok: false, reason }`. It never throws, so a bad request can't crash your handler. Checks run in this order and stop at the first failure:
+
+<CheckOrder stages={["headers", "id", "timestamp", "body", "signature", "JSON"]} />
+
+The body is only read once the headers pass, so a request without valid headers is rejected without buffering its body.
+
+## Reasons
+
+| Reason                       | When                                                                 | Usual cause                                              |
+| ---------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
+| `missing_headers`            | No `webhook-id`, `webhook-timestamp` or `webhook-signature` (or `svix-*`) | Not a webhook, or a proxy stripped the headers      |
+| `invalid_id`                 | The id contains a dot, which the spec forbids                        | A malformed or forged request                            |
+| `invalid_timestamp`          | The timestamp is not an integer of seconds                           | A date string or a decimal instead of Unix seconds       |
+| `timestamp_out_of_tolerance` | More than `toleranceSec` (300 by default) from now, either way       | A replayed request, a clock that's off, or milliseconds  |
+| `unreadable_body`            | The `Request` body was already read, or the stream failed            | Another middleware read it first. Pass `req.clone()`     |
+| `invalid_secret`             | The secret could not be imported as an HMAC key                      | Rare: `createVerifier()` already rejects bad secrets     |
+| `invalid_signature`          | None of the `v1,` signatures match                                   | The wrong secret, or a body that was parsed and re-serialized |
+| `invalid_json`               | The signature is valid but the body is not JSON                      | The sender signed something that isn't JSON              |
+
+`unreadable_body` only comes from `verify()`. `verifyPayload()` gets the body from you.
+
+## Signatures
+
+The `webhook-signature` header can hold several space-separated signatures, like `v1,abc… v1,def…`, which senders use while rotating keys. The verifier tries up to 8 `v1` entries and accepts the request if any of them matches. Entries with another version prefix are skipped.
+
+## Tolerance
+
+The timestamp check is what stops replays: a captured request can't be sent again once it's older than the tolerance. Widen it only if your clocks drift:
+
+```ts
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!, { toleranceSec: 600 });
+```
+
+`toleranceSec` must be a finite number, 0 or more. Anything else throws when you create the verifier.
+
+## Responding
+
+Answer failures with a 4xx. A sender like `@typedhook/sdk` treats any non-2xx as a failed attempt and retries it later, so fixing a wrong secret on your side lets the next attempt through. Return `result.reason` in the body when the sender is yours, and keep it out of public responses if you'd rather not tell a forger which check failed.

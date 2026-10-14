@@ -1,0 +1,39 @@
+---
+title: direct()
+description: Deliver from send(), with retries in memory. The default delivery mode.
+---
+
+```ts
+import { direct } from "@typedhook/sdk";
+
+function direct(opts?: {
+  maxAttempts?: number;
+  backoffMs?: (attempts: number) => number;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}): DirectDelivery;
+```
+
+```ts
+const wh = webhooks({ events, subscribers, delivery: direct({ maxAttempts: 3 }) });
+```
+
+## Options
+
+| Option        | Default                               | What it does                                               |
+| ------------- | ------------------------------------- | ---------------------------------------------------------- |
+| `maxAttempts` | `5`                                   | Attempts per subscriber, including the first               |
+| `backoffMs`   | `(n) => Math.min(30_000, 500 * 2 ** (n - 1))` | Wait in ms after `n` failed attempts, starting at 1 |
+| `timeoutMs`   | `10000`                               | Per-request timeout                                        |
+| `fetchImpl`   | `fetch`                               | The HTTP client                                            |
+
+## Behavior
+
+- `send()` posts to all subscribers in parallel and resolves when each one has succeeded or used up its attempts.
+- A 2xx is a success. Any other status, a network error or a timeout is a failed attempt. Redirects are not followed.
+- Every attempt is signed with a fresh timestamp.
+- Retries live in the process. A crash or restart loses them. Use [`outbox()`](/docs/reference/outbox) when that matters.
+
+## Throws
+
+`RangeError` when `maxAttempts` isn't a positive integer, so a bad value fails at startup.

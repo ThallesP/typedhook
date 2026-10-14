@@ -1,0 +1,68 @@
+---
+title: Define events
+description: Declare every event once, as a schema. The event name types the data you send and the payload your consumers receive.
+---
+
+Events are a plain object. Each key is an event name, each value is the schema of that event's `data`.
+
+```ts title="src/events.ts"
+import { z } from "zod";
+
+export const events = {
+  "invoice.paid": z.object({ invoiceId: z.string(), amountCents: z.number() }),
+  "member.invited": z.object({
+    email: z.string().email(),
+    role: z.enum(["admin", "viewer"]),
+  }),
+};
+```
+
+Pass it to `webhooks({ events })`. From then on, `send()` only accepts known event names, and the name narrows `data`:
+
+```ts
+await wh.send({
+  event: "member.invited",
+  subject: "acct_42",
+  data: { email: "ana@northwind.dev", role: "admin" },
+});
+```
+
+## Any Standard Schema
+
+The SDK only talks to the [Standard Schema](https://standardschema.dev) interface, so zod (3.24 or later), valibot and arktype all work, and you can mix them in one map.
+
+```ts
+import * as v from "valibot";
+import { type } from "arktype";
+
+export const events = {
+  "invoice.paid": v.object({ invoiceId: v.string(), amountCents: v.number() }),
+  "invoice.voided": type({ invoiceId: "string" }),
+};
+```
+
+## What gets validated
+
+`send()` validates `data` against the event's schema before anything else happens. Nothing is sent, and nothing is written to the outbox, when it fails:
+
+| Problem                         | `result.error`                                       |
+| ------------------------------- | ---------------------------------------------------- |
+| An event name not in the map    | `unknown event type "…"`                             |
+| Data that fails the schema      | `invalid payload for "…": ` and the issue messages   |
+| The validator itself throws     | `schema validation threw for "…": …`                 |
+| Output that can't be serialized | `payload for "…" is not JSON-serializable: …`        |
+
+The validated **output** is what gets sent. Defaults and transforms in your schema run before the payload is signed.
+
+## Types on the wire
+
+The body is JSON, so some types change on the way. A `z.date()` field is sent as an ISO string, and a `bigint` can't be serialized at all (`send()` returns an error). `EventUnion` describes the payload as consumers receive it, after that round trip:
+
+```ts
+import type { EventUnion } from "@typedhook/sdk";
+
+export type Events = EventUnion<typeof events>;
+// { event: "invoice.paid"; subject: string | null; data: { invoiceId: string; amountCents: number } } | …
+```
+
+See [Typed payloads](/docs/typed-payloads) for how consumers use it.

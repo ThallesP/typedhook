@@ -1,0 +1,64 @@
+---
+title: Typed payloads
+description: Share your event types with the apps that receive them, through a type-only import.
+---
+
+The sender already knows the shape of every event. Export it, and receivers get typed payloads without depending on your schemas or your schema library.
+
+## On the sender
+
+`EventUnion` turns your event map into a union of payloads, one per event:
+
+```ts title="src/events.ts"
+import type { EventUnion } from "@typedhook/sdk";
+import { z } from "zod";
+
+export const events = {
+  "invoice.paid": z.object({ invoiceId: z.string(), amountCents: z.number() }),
+  "invoice.voided": z.object({ invoiceId: z.string(), voidedAt: z.date() }),
+};
+
+export type Events = EventUnion<typeof events>;
+```
+
+Publish `Events` from a package your consumers install, like your SDK.
+
+## On the receiver
+
+Import it as a type and pass it to `verify()`. Checking `event` narrows `data`:
+
+```ts title="app/api/webhooks/route.ts"
+import { createVerifier } from "@typedhook/verify";
+import type { Events } from "@acme/sdk";
+
+const verifier = createVerifier(process.env.WEBHOOK_SECRET!);
+
+export async function POST(req: Request) {
+  const result = await verifier.verify<Events>(req);
+  if (!result.ok) return new Response(result.reason, { status: 400 });
+
+  if (result.payload.event === "invoice.paid") {
+    result.payload.data.amountCents; // number
+  }
+  return new Response(null, { status: 204 });
+}
+```
+
+`import type` disappears at build time, so the receiver ships none of the sender's code. `verifyPayload<Events>()` works the same way.
+
+## Types match the wire
+
+`EventUnion` describes the JSON the receiver gets, not the values you passed to `send()`:
+
+| In your schema        | In `EventUnion`   |
+| --------------------- | ----------------- |
+| `z.date()`            | `string`          |
+| A class with `toJSON` | What `toJSON` returns |
+| `bigint`, `symbol`    | `never`           |
+| `subject`             | `string \| null`  |
+
+So `voidedAt` above is a `string` on the receiver. The `Jsonify` type that does this is exported too.
+
+<Callout type="warn">
+**Types are not validation.** The verifier checks who sent the payload, not its shape. If you don't fully trust the sender, or its version can drift from yours, parse `result.payload` with a schema before using it.
+</Callout>

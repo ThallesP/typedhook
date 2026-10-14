@@ -1,0 +1,64 @@
+---
+title: worker()
+description: Claim due outbox rows and deliver them, in a loop or one pass at a time.
+---
+
+```ts
+wh.worker(opts?: WorkerOpts): OutboxWorker;
+
+interface OutboxWorker {
+  start(): void;
+  stop(): Promise<void>;
+  tick(): Promise<TickReport>;
+}
+
+interface TickReport {
+  claimed: number;
+  delivered: number;
+  retried: number;
+  dead: number;
+}
+```
+
+Only exists when `delivery` is [`outbox()`](/docs/reference/outbox). Calling it on a direct sender is a type error.
+
+## Options
+
+| Option           | Default | What it does                                              |
+| ---------------- | ------- | --------------------------------------------------------- |
+| `pollIntervalMs` | `1000`  | Wait after each tick before the next, with `start()`      |
+| `batch`          | `100`   | Rows claimed per tick                                     |
+| `timeoutMs`      | `10000` | Per-request timeout. A timeout counts as a failed attempt |
+| `fetchImpl`      | `fetch` | The HTTP client                                           |
+| `hooks`          | `{}`    | See below                                                 |
+
+## Hooks
+
+```ts
+interface WorkerHooks {
+  onDelivered?(row: OutboxRow): void;
+  onRetry?(row: OutboxRow, error: string): void;
+  onDead?(row: OutboxRow, error: string): void;
+  onError?(error: unknown): void;
+}
+```
+
+`onError` receives adapter failures, like a `claim` that rejects. Errors thrown by any hook are swallowed, so a broken hook can't stop the loop or `stop()`.
+
+## Methods
+
+| Method    | What it does                                                                                       |
+| --------- | -------------------------------------------------------------------------------------------------- |
+| `start()` | Runs a tick now, then one `pollIntervalMs` after each tick finishes. Does nothing if already running |
+| `stop()`  | Stops scheduling ticks and resolves once in-flight deliveries finish. Never rejects                |
+| `tick()`  | One pass: claim up to `batch` rows and deliver them. Use it from cron instead of `start()`         |
+
+## Per row
+
+The worker signs the stored body with the row's secret, or `signing.secret` when the row has none, and a fresh timestamp. Then:
+
+- 2xx: `complete(row)`, then `onDelivered`.
+- Failure with attempts left: `retry(row, attempts, now + backoffMs(attempts), error)`, then `onRetry`.
+- Failure on attempt `maxAttempts`: `dead(row, attempts, error)`, then `onDead`.
+
+One row's adapter failure doesn't abandon the others in the same tick.
