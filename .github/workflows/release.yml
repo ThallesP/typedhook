@@ -25,11 +25,9 @@ jobs:
           node-version: 24
       - run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
-          version: bun run ci:version
-          publish: bun run ci:release
-          commit: Version packages
-          title: Version packages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          version-script: bun run ci:version
+          publish-script: bun run ci:release
+          commit-message: Version packages
+          pr-title: Version packages
