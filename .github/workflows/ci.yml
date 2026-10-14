@@ -33,3 +33,12 @@ jobs:
           until docker exec mongo mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]}).ok'; do sleep 1; done
           until docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary' | grep -q true; do sleep 1; done
       - run: bun test
+      # GitHub runs the Action straight from the repo, so the committed bundle
+      # must match its source. typecheck above rebuilt it.
+      - name: Check publish-action dist is up to date
+        run: |
+          if [ -n "$(git status --porcelain packages/publish-action/dist)" ]; then
+            echo "packages/publish-action/dist is stale: run bun run build and commit it"
+            git status --porcelain packages/publish-action/dist
+            exit 1
+          fi

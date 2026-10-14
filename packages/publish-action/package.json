@@ -1,0 +1,16 @@
+{
+  "name": "@typedhook/publish-action",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --license licenses.txt"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "jiti": "^2.7.0"
+  },
+  "devDependencies": {
+    "@typedhook/verify": "workspace:*",
+    "@vercel/ncc": "^0.45.0"
+  }
+}

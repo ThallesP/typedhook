@@ -13,7 +13,8 @@
       "@typedhook/mikro-orm",
       "@typedhook/sequelize",
       "@typedhook/knex",
-      "@typedhook/mongodb"
+      "@typedhook/mongodb",
+      "typedhook"
     ]
   ],
   "linked": [],

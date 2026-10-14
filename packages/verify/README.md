@@ -26,4 +26,19 @@ Failures are reason codes, never exceptions. Signatures are checked over the raw
 bytes received. Delivery is at-least-once — dedupe on `result.id` (stable across
 retries).
 
+## Typed events from the registry
+
+Senders that publish their events with the
+[publish action](https://github.com/ThallesP/typedhook/tree/main/packages/publish-action)
+can be typed without installing anything from them. The
+[`typedhook`](https://www.npmjs.com/package/typedhook) CLI pulls their events as types for
+`verifier.verify<Events>()`:
+
+```sh
+npm install typedhook
+npx typedhook add acme/billing
+```
+
+See the [CLI README](https://github.com/ThallesP/typedhook/tree/main/packages/cli).
+
 Full docs: https://github.com/ThallesP/typedhook

@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "typedhook-registry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "typedhook-registry",
+      "database_id": "d46cdad5-0eb6-4da6-8b69-47330391467f",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "routes": [{ "pattern": "registry.typedhook.dev", "custom_domain": true }],
+  "vars": {
+    // The OIDC audience pushes must be minted for: the registry's public URL.
+    // `bun run dev` overrides it with localhost.
+    "REGISTRY_URL": "https://registry.typedhook.dev"
+  }
+}
