@@ -32072,7 +32072,7 @@ function tsType(text, kind) {
 }
 
 // src/registry/registry-client.ts
-var DEFAULT_REGISTRY_URL = "http://localhost:8787";
+var DEFAULT_REGISTRY_URL = "https://registry.typedhook.dev";
 var REGISTRY = /^([A-Za-z0-9][A-Za-z0-9._-]{0,99})\/([A-Za-z0-9][A-Za-z0-9._-]{0,99})$/;
 var STRICT_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?$/;
 function parseRegistry(registry) {
