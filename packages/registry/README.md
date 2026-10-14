@@ -16,12 +16,10 @@ URL. A plain `wrangler dev` has no `REGISTRY_URL` and fails at startup.
 
 ## Deploying
 
-1. Create the database: `bunx wrangler d1 create typedhook-registry`, and put the
-   printed id in `database_id` in `wrangler.jsonc`.
-2. Set `vars.REGISTRY_URL` in `wrangler.jsonc` to the registry's public URL, e.g.
-   `https://registry.example.com`. It is the audience pushes must mint their OIDC
-   token for, so it has to match the URL clients push to. The worker refuses to
-   start without it, so a deploy that forgets it fails.
-3. Apply the migrations: `bun run db:migrate`.
-4. Deploy: `bun run deploy`. It builds `@typedhook/verify` first, since the
+It runs at https://registry.typedhook.dev on the `typedhook-registry` D1 database.
+`vars.REGISTRY_URL` in `wrangler.jsonc` is the audience pushes must mint their OIDC
+token for, so it has to match the URL clients push to.
+
+1. Apply new migrations: `bun run db:migrate`.
+2. Deploy: `bun run deploy`. It builds `@typedhook/verify` first, since the
    worker bundles its hashing from the built package.

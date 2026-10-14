@@ -94,7 +94,7 @@ jobs:
 | `version` | the tag | Version to publish. On a tag run it defaults to the tag without a leading `v` (`v1.4.0` → `1.4.0`); anywhere else it's required |
 | `title` | `name` | OpenAPI `info.title` |
 | `description` | | OpenAPI `info.description` |
-| `registry-url` | the hosted registry | Registry base URL. The default is `http://localhost:8787` until the hosted registry is deployed |
+| `registry-url` | the hosted registry | Registry base URL. The default is `https://registry.typedhook.dev` |
 | `working-directory` | `.` | Directory that `events` and `output-file` are resolved against |
 | `dry-run` | `false` | Build and validate the document without uploading it |
 | `output-file` | | Also write the document (pretty JSON) to this path |

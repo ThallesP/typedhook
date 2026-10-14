@@ -1,8 +1,7 @@
 import { hashDocument } from "./hash";
 import { isRecord } from "./is-record";
 
-// Replaced with the hosted registry's URL once it's deployed.
-export const DEFAULT_REGISTRY_URL = "http://localhost:8787";
+export const DEFAULT_REGISTRY_URL = "https://registry.typedhook.dev";
 
 export type FetchImpl = (url: string, init: RequestInit) => Promise<Response>;
 
