@@ -34,9 +34,12 @@ if (result.ok && result.payload.event === "invoice.paid") {
 - `typedhook pull` only fetches what `typedhook.lock` pins, and skips the network when the
   generated files already match it. `--update` moves to the newest versions the ranges in
   `typedhook.json` allow; `--check` fails when generated files are missing or stale (for CI).
-- `typedhook push --events <file> --name <name> --version <semver>` publishes your own events
-  from GitHub Actions. Most senders use the
+- `typedhook push --name <name> --version <semver>` publishes your own events from GitHub
+  Actions. It finds the `webhooks.ts` (or `.js`) that exports your `webhooks()` instance in
+  `.`, `src`, `lib`, `server` or `utils`, imports it and reads the events off the instance;
+  `--webhooks <file>` points it at another file and `--export <name>` picks an instance when the
+  file exports several. Most senders use the
   [publish action](https://github.com/ThallesP/typedhook/tree/main/packages/publish-action)
-  instead. Loading a TypeScript events file needs Bun or Node 22.18+.
+  instead.
 
 `TYPEDHOOK_REGISTRY_URL` overrides the registry URL.

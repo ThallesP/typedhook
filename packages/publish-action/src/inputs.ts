@@ -1,7 +1,9 @@
 import { DEFAULT_REGISTRY_URL, isStrictSemver, parseRegistry } from "@typedhook/verify/registry";
 
 export type Inputs = {
-  events: string;
+  /** Module exporting the webhooks() instance; "" to search for it. */
+  webhooks: string;
+  /** "" when the module exports a single instance. */
   exportName: string;
   /** `owner/name`, the owner being the repository owner the OIDC token is issued for. */
   registry: string;
@@ -34,8 +36,8 @@ export function parseInputs(getInput: GetInput, env: Env): Inputs {
   }
 
   return {
-    events: requireInput(getInput, "events"),
-    exportName: getInput("export") || "events",
+    webhooks: getInput("webhooks"),
+    exportName: getInput("export"),
     registry,
     version,
     title: getInput("title") || name,

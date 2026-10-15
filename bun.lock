@@ -21,6 +21,10 @@
       },
       "dependencies": {
         "@typedhook/verify": "workspace:*",
+        "jiti": "^2.7.0",
+      },
+      "devDependencies": {
+        "@typedhook/sdk": "workspace:*",
       },
     },
     "packages/drizzle": {
@@ -113,6 +117,7 @@
         "jiti": "^2.7.0",
       },
       "devDependencies": {
+        "@typedhook/sdk": "workspace:*",
         "@typedhook/verify": "workspace:*",
         "@vercel/ncc": "^0.45.0",
       },

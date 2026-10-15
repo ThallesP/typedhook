@@ -15,11 +15,11 @@ Commands:
     --check                    Write nothing; fail when generated files are missing or stale
 
   push                         Build an OpenAPI document from your events and upload it
-    --events <file>            Module exporting the event map (required); a .ts file
-                               needs Bun or Node 22.18+
     --name <name>              Registry name (required)
     --version <semver>         Version to publish (required)
-    --export <name>            Export holding the event map (default: events)
+    --webhooks <file>          Module exporting your webhooks() instance (default: the first
+                               webhooks.ts or .js in ., src, lib, server or utils)
+    --export <name>            Export holding the instance, when the module exports several
     --title <text>             OpenAPI info.title (default: the name)
     --description <text>       OpenAPI info.description
     --owner <owner>            Registry owner (default: $GITHUB_REPOSITORY_OWNER)
@@ -68,7 +68,7 @@ async function runPush(args: string[]): Promise<void> {
   const { values } = parseArgs({
     args,
     options: {
-      events: { type: "string" },
+      webhooks: { type: "string" },
       name: { type: "string" },
       version: { type: "string" },
       export: { type: "string" },
@@ -78,9 +78,9 @@ async function runPush(args: string[]): Promise<void> {
       out: { type: "string" },
     },
   });
-  const { events, name, version, export: exportName, ...rest } = values;
-  if (!events || !name || !version) throw new Error("push needs --events, --name and --version");
-  await push({ events, name, version, exportName, ...rest });
+  const { name, version, export: exportName, ...rest } = values;
+  if (!name || !version) throw new Error("push needs --name and --version");
+  await push({ name, version, exportName, ...rest });
 }
 
 try {

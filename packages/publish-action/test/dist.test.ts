@@ -10,7 +10,7 @@ afterAll(() => rm(tempDirectory, { recursive: true, force: true }));
 
 // Runs the committed bundle, copied away from any node_modules, the way the runner does.
 describe("dist/index.js", () => {
-  test("builds the document from a TypeScript events file in a dry run", async () => {
+  test("finds the webhooks file and builds the document from its instance in a dry run", async () => {
     await cp(join(import.meta.dir, "../dist"), join(tempDirectory, "dist"), { recursive: true });
     const outputFile = join(tempDirectory, "openapi.json");
     const githubOutput = join(tempDirectory, "github-output");
@@ -22,8 +22,7 @@ describe("dist/index.js", () => {
       cwd: tempDirectory,
       env: {
         PATH: process.env.PATH,
-        INPUT_EVENTS: "fixtures/events.ts",
-        "INPUT_WORKING-DIRECTORY": import.meta.dir,
+        "INPUT_WORKING-DIRECTORY": join(import.meta.dir, "fixtures"),
         INPUT_NAME: "billing",
         INPUT_VERSION: "1.4.0",
         "INPUT_DRY-RUN": "true",

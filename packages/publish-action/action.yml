@@ -5,12 +5,10 @@ branding:
   icon: upload-cloud
   color: purple
 inputs:
-  events:
-    description: Path to the module exporting the event map (TypeScript or JavaScript), relative to working-directory.
-    required: true
+  webhooks:
+    description: Path to the module exporting your webhooks() instance (TypeScript or JavaScript), relative to working-directory. Defaults to the first webhooks.ts or .js found in ., src, lib, server or utils.
   export:
-    description: Name of the export holding the event map.
-    default: events
+    description: Name of the export holding the instance, when the module exports several.
   name:
     description: Registry name. The owner is always the repository owner, so this publishes to owner/name.
     required: true
@@ -23,7 +21,7 @@ inputs:
   registry-url:
     description: Registry base URL. Defaults to the hosted typedhook registry.
   working-directory:
-    description: Directory that events and output-file are resolved against.
+    description: Directory that webhooks and output-file are resolved against, and searched for a webhooks file.
     default: .
   dry-run:
     description: Build and validate the document without uploading it.

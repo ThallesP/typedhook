@@ -134,7 +134,7 @@ async function findUp(cwd: string, file: string): Promise<string | null> {
   }
 }
 
-async function exists(path: string): Promise<boolean> {
+export async function exists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;

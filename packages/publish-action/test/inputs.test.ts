@@ -10,9 +10,9 @@ function getInputFrom(values: Record<string, string>) {
 
 describe("parseInputs", () => {
   test("applies defaults and takes the version from the tag", () => {
-    expect(parseInputs(getInputFrom({ events: "src/events.ts", name: "billing" }), env)).toEqual({
-      events: "src/events.ts",
-      exportName: "events",
+    expect(parseInputs(getInputFrom({ name: "billing" }), env)).toEqual({
+      webhooks: "",
+      exportName: "",
       registry: "acme/billing",
       version: "1.4.0",
       title: "billing",
@@ -25,7 +25,7 @@ describe("parseInputs", () => {
   });
 
   test("keeps a tag without a leading v as is", () => {
-    const inputs = parseInputs(getInputFrom({ events: "events.ts", name: "billing" }), {
+    const inputs = parseInputs(getInputFrom({ name: "billing" }), {
       ...env,
       GITHUB_REF: "refs/tags/2.0.0-beta.1",
     });
@@ -33,14 +33,14 @@ describe("parseInputs", () => {
   });
 
   test("an explicit version wins over the tag", () => {
-    const inputs = parseInputs(getInputFrom({ events: "events.ts", name: "billing", version: "1.5.0" }), env);
+    const inputs = parseInputs(getInputFrom({ name: "billing", version: "1.5.0" }), env);
     expect(inputs.version).toBe("1.5.0");
   });
 
   test.each(["1.4", "1.4.0+build.5", "1.4.0\nexport const pwned = 1;"])(
     "rejects version %p, which the registry won't store",
     (version) => {
-      expect(() => parseInputs(getInputFrom({ events: "events.ts", name: "billing", version }), env)).toThrow(
+      expect(() => parseInputs(getInputFrom({ name: "billing", version }), env)).toThrow(
         "version must be strict semver",
       );
     },
@@ -48,7 +48,7 @@ describe("parseInputs", () => {
 
   test("rejects a tag that isn't a version", () => {
     expect(() =>
-      parseInputs(getInputFrom({ events: "events.ts", name: "billing" }), {
+      parseInputs(getInputFrom({ name: "billing" }), {
         ...env,
         GITHUB_REF: "refs/tags/release-7",
       }),
@@ -57,7 +57,7 @@ describe("parseInputs", () => {
 
   test("strips trailing slashes from the registry URL, which is also the OIDC audience", () => {
     const inputs = parseInputs(
-      getInputFrom({ events: "events.ts", name: "billing", "registry-url": "https://reg.example//" }),
+      getInputFrom({ name: "billing", "registry-url": "https://reg.example//" }),
       env,
     );
     expect(inputs.registryUrl).toBe("https://reg.example");
@@ -65,7 +65,7 @@ describe("parseInputs", () => {
 
   test("fails without a version outside a tag run", () => {
     expect(() =>
-      parseInputs(getInputFrom({ events: "events.ts", name: "billing" }), {
+      parseInputs(getInputFrom({ name: "billing" }), {
         ...env,
         GITHUB_REF: "refs/heads/main",
       }),
@@ -75,8 +75,8 @@ describe("parseInputs", () => {
   test("passes the other inputs through", () => {
     const inputs = parseInputs(
       getInputFrom({
-        events: "events.ts",
-        export: "billingEvents",
+        webhooks: "src/lib/webhooks.ts",
+        export: "wh",
         name: "billing",
         title: "Billing",
         description: "Billing events",
@@ -87,7 +87,8 @@ describe("parseInputs", () => {
       env,
     );
     expect(inputs).toMatchObject({
-      exportName: "billingEvents",
+      webhooks: "src/lib/webhooks.ts",
+      exportName: "wh",
       title: "Billing",
       description: "Billing events",
       registryUrl: "https://registry.test",
@@ -102,23 +103,22 @@ describe("parseInputs", () => {
     ["false", false],
     ["FALSE", false],
   ])("parses dry-run %p", (value, isDryRun) => {
-    const inputs = parseInputs(getInputFrom({ events: "events.ts", name: "billing", "dry-run": value }), env);
+    const inputs = parseInputs(getInputFrom({ name: "billing", "dry-run": value }), env);
     expect(inputs.isDryRun).toBe(isDryRun);
   });
 
   test("rejects a dry-run that isn't a boolean", () => {
     expect(() =>
-      parseInputs(getInputFrom({ events: "events.ts", name: "billing", "dry-run": "yes" }), env),
+      parseInputs(getInputFrom({ name: "billing", "dry-run": "yes" }), env),
     ).toThrow('input "dry-run" must be true or false, got "yes"');
   });
 
-  test("requires events and name", () => {
-    expect(() => parseInputs(getInputFrom({ name: "billing" }), env)).toThrow('input "events" is required');
-    expect(() => parseInputs(getInputFrom({ events: "events.ts" }), env)).toThrow('input "name" is required');
+  test("requires name", () => {
+    expect(() => parseInputs(getInputFrom({}), env)).toThrow('input "name" is required');
   });
 
   test("rejects a name the registry won't accept", () => {
-    expect(() => parseInputs(getInputFrom({ events: "events.ts", name: "-billing" }), env)).toThrow(
+    expect(() => parseInputs(getInputFrom({ name: "-billing" }), env)).toThrow(
       'invalid registry "acme/-billing"',
     );
   });

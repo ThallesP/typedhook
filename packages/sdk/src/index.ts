@@ -126,6 +126,12 @@ export interface EnqueueReport {
 
 export type SubjectMode = "optional" | undefined;
 
+/** What `typedhook push` reads off a webhooks() instance found in the sender's code. */
+export interface TypedhookBrand<E extends EventMap> {
+  readonly version: 1;
+  readonly events: E;
+}
+
 /**
  * One object per send. `event` narrows `data` (correlated even when the caller
  * holds a union of event names); `subject` is what the event is about — user,
@@ -142,6 +148,7 @@ export type SendInput<
 } & (S extends "optional" ? { subject?: string } : { subject: string });
 
 export interface DirectWebhooks<E extends EventMap, S extends SubjectMode = undefined> {
+  readonly "~typedhook": TypedhookBrand<E>;
   send<K extends keyof E & string>(
     input: SendInput<E, K, S>,
   ): Promise<Result<DirectSendReport>>;
@@ -152,6 +159,7 @@ export interface OutboxWebhooks<
   Tx,
   S extends SubjectMode = undefined,
 > {
+  readonly "~typedhook": TypedhookBrand<E>;
   /** Enqueue outside a transaction — adapter uses its own connection. */
   send<K extends keyof E & string>(
     input: SendInput<E, K, S>,
@@ -181,9 +189,11 @@ export function webhooks<E extends EventMap>(
   config: WebhooksConfig<E> & { delivery?: Delivery },
 ): DirectWebhooks<E, SubjectMode> | OutboxWebhooks<E, unknown, SubjectMode> {
   const delivery: Delivery = config.delivery ?? direct();
+  const brand: TypedhookBrand<E> = { version: 1, events: config.events };
 
   if (delivery.kind === "outbox") {
     const api: OutboxWebhooks<E, unknown, SubjectMode> = {
+      "~typedhook": brand,
       send: (input) => enqueue(config, delivery, input, undefined),
       with: (tx) => ({
         send: (input) => enqueue(config, delivery, input, tx),
@@ -203,6 +213,7 @@ export function webhooks<E extends EventMap>(
   }
 
   const api: DirectWebhooks<E, SubjectMode> = {
+    "~typedhook": brand,
     send: (input) => sendDirect(config, delivery, input),
   };
   return api;

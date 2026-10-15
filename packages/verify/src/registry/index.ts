@@ -19,3 +19,4 @@ export {
   pushDocument,
   resolveRegistry,
 } from "./registry-client";
+export { WEBHOOKS_FILES, eventsFromModule } from "./webhooks-module";

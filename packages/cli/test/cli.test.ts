@@ -19,7 +19,7 @@ const app = createApp({
   verifyGithubToken: githubVerifier({ audience: AUDIENCE, keySet }),
 });
 const token = await signGithubToken();
-const fixtures = join(import.meta.dir, "../../verify/test/fixtures");
+const sender = join(import.meta.dir, "fixtures/sender");
 const log = (_line: string) => {};
 
 let server = serve();
@@ -43,13 +43,11 @@ async function readJson(path: string): Promise<unknown> {
 
 function pushBilling(version: string, log = (_line: string) => {}) {
   return push({
-    events: "billing.ts",
-    exportName: "billingEvents",
     name: "billing",
     title: "Billing",
     version,
     owner: "acme",
-    cwd: fixtures,
+    cwd: sender,
     env: env(),
     log,
   });
@@ -191,29 +189,33 @@ describe("webhooks CLI against the registry", () => {
     );
   });
 
-  test("push says which runtimes load TypeScript when the import fails", async () => {
-    const pushing = push({
-      events: "missing.ts",
+  test("push says where it looked when there's no webhooks file", async () => {
+    const pushing = push({ name: "billing", version: "1.0.0", out: "x.json", cwd: project, env: {}, log });
+    await expect(pushing).rejects.toThrow(
+      `no webhooks file in ${project}: looked for webhooks.ts (or .js) in ., src, lib, server and utils; pass --webhooks <file>`,
+    );
+  });
+
+  test("push --webhooks reads the instance from the given file", async () => {
+    await push({
+      webhooks: join(sender, "src/webhooks.ts"),
+      exportName: "wh",
       name: "billing",
-      version: "1.0.0",
-      out: "x.json",
-      cwd: fixtures,
+      version: "2.1.0",
+      out: join(project, "openapi-wh.json"),
+      cwd: project,
       env: {},
       log,
     });
-    await expect(pushing).rejects.toThrow(
-      /^can't import .*missing\.ts: .*TypeScript event files need Bun or Node 22\.18\+/,
-    );
+    expect(await readJson("openapi-wh.json")).toMatchObject({ info: { version: "2.1.0" } });
   });
 
   test("push --out writes the document without uploading", async () => {
     await push({
-      events: "billing.ts",
-      exportName: "billingEvents",
       name: "billing",
       version: "2.0.0",
       out: join(project, "openapi.json"),
-      cwd: fixtures,
+      cwd: sender,
       env: {},
       log,
     });

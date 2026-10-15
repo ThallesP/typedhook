@@ -1,6 +1,6 @@
 # Publish webhook events
 
-A GitHub Action that publishes your webhook event schemas to the typedhook registry. It loads the module that exports your event map (zod, ArkType or Valibot schemas — anything implementing Standard JSON Schema), turns it into an OpenAPI 3.1 document and pushes it as `owner/name@version`, authenticated with the workflow's GitHub OIDC token. No secrets to configure.
+A GitHub Action that publishes your webhook event schemas to the typedhook registry. It finds the file that exports your `webhooks()` instance, reads its events (zod, ArkType or Valibot schemas — anything implementing Standard JSON Schema), turns them into an OpenAPI 3.1 document and pushes it as `owner/name@version`, authenticated with the workflow's GitHub OIDC token. No secrets to configure.
 
 Consumers then pull typed events with:
 
@@ -32,7 +32,6 @@ jobs:
       - run: npm ci
       - uses: ThallesP/typedhook/packages/publish-action@v1
         with:
-          events: src/webhooks/events.ts
           name: billing
           title: Billing
           description: Events sent by the billing service
@@ -40,17 +39,26 @@ jobs:
 
 Pin a release tag or a commit SHA; `@v1` above stands for the release you pick.
 
-Pushing the tag `v1.4.0` publishes `acme/billing@1.4.0`, where `acme` is the repository owner. Install dependencies first: the events module is loaded with its imports (zod and your own files), so they have to resolve. TypeScript, extensionless relative imports, ESM and CJS all work.
+Pushing the tag `v1.4.0` publishes `acme/billing@1.4.0`, where `acme` is the repository owner.
 
-The events module exports the same map you pass to `@typedhook/sdk`:
+The action looks for `webhooks.ts` (or `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`) in the working directory, then in `src`, `lib`, `src/lib`, `server`, `src/server`, `utils` and `src/utils`, and takes the first one it finds. That file exports the instance you call `send()` on, under any name or as the default:
 
 ```ts
+// src/lib/webhooks.ts
+import { webhooks } from "@typedhook/sdk";
 import { z } from "zod";
 
-export const events = {
-  "invoice.paid": z.object({ invoiceId: z.string(), amountCents: z.int() }),
-};
+export const wh = webhooks({
+  events: {
+    "invoice.paid": z.object({ invoiceId: z.string(), amountCents: z.int() }),
+  },
+  subscribers: async ({ event, subject }) => db.findSubscribers(event, subject),
+});
 ```
+
+Set `webhooks` to point at another file, and `export` when the file exports more than one instance.
+
+The file is imported the way your app imports it, with everything it imports (zod, your database client, your own files). Install dependencies first so they resolve. TypeScript, extensionless relative imports, ESM and CJS all work, but TypeScript path aliases like `@/db` don't yet. Anything the file does when it's imported runs in the job too, so code that reads a required environment variable or connects to a database at import time fails there.
 
 ### Validate in pull requests
 
@@ -73,7 +81,6 @@ jobs:
       - run: npm ci
       - uses: ThallesP/typedhook/packages/publish-action@v1
         with:
-          events: src/webhooks/events.ts
           name: billing
           version: 0.0.0
           dry-run: true
@@ -88,14 +95,14 @@ jobs:
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `events` | required | Path to the module exporting the event map, relative to `working-directory` |
-| `export` | `events` | Name of the export holding the event map |
+| `webhooks` | the first `webhooks.ts` found | Path to the module exporting your `webhooks()` instance, relative to `working-directory` |
+| `export` | | Name of the export holding the instance, when the module exports several |
 | `name` | required | Registry name; the owner is always the repository owner, so this publishes to `owner/name` |
 | `version` | the tag | Version to publish. On a tag run it defaults to the tag without a leading `v` (`v1.4.0` → `1.4.0`); anywhere else it's required |
 | `title` | `name` | OpenAPI `info.title` |
 | `description` | | OpenAPI `info.description` |
 | `registry-url` | the hosted registry | Registry base URL. The default is `https://registry.typedhook.dev` |
-| `working-directory` | `.` | Directory that `events` and `output-file` are resolved against |
+| `working-directory` | `.` | Directory that `webhooks` and `output-file` are resolved against, and that's searched for a webhooks file |
 | `dry-run` | `false` | Build and validate the document without uploading it |
 | `output-file` | | Also write the document (pretty JSON) to this path |
 

@@ -32359,6 +32359,46 @@ function envelope(name, data) {
   };
 }
 
+// src/registry/webhooks-module.ts
+var DIRECTORIES = ["", "src/", "lib/", "src/lib/", "server/", "src/server/", "utils/", "src/utils/"];
+var EXTENSIONS = ["ts", "mts", "cts", "js", "mjs", "cjs"];
+var WEBHOOKS_FILES = DIRECTORIES.flatMap(
+  (directory) => EXTENSIONS.map((extension) => `${directory}webhooks.${extension}`)
+);
+function eventsFromModule(module, path, exportName) {
+  if (isBranded(module)) return module["~typedhook"].events;
+  const exports = isRecord(module) ? module : {};
+  if (exportName) {
+    const value = exports[exportName];
+    if (!isBranded(value)) {
+      throw new Error(`${path}: export "${exportName}" isn't a webhooks() instance from @typedhook/sdk`);
+    }
+    return value["~typedhook"].events;
+  }
+  const nameByInstance = /* @__PURE__ */ new Map();
+  for (const [name, value] of Object.entries(exports)) {
+    if (isBranded(value) && !nameByInstance.has(value)) nameByInstance.set(value, name);
+  }
+  const [first, ...others] = nameByInstance.keys();
+  if (!first) {
+    throw new Error(
+      `${path} doesn't export a webhooks() instance from @typedhook/sdk; export the one you call send() on`
+    );
+  }
+  if (others.length > 0) {
+    const names = [...nameByInstance.values()].join(", ");
+    throw new Error(
+      `${path} exports several webhooks() instances (${names}); choose one with --export, or the action's export input`
+    );
+  }
+  return first["~typedhook"].events;
+}
+function isBranded(value) {
+  if (!isRecord(value)) return false;
+  const brand = value["~typedhook"];
+  return isRecord(brand) && brand.version === 1 && isRecord(brand.events);
+}
+
 
 ;// CONCATENATED MODULE: ./src/inputs.ts
 
@@ -32377,8 +32417,8 @@ function parseInputs(getInput, env) {
         throw new Error(`version must be strict semver like 1.4.0 or 2.0.0-beta.1, got "${version}"`);
     }
     return {
-        events: requireInput(getInput, "events"),
-        exportName: getInput("export") || "events",
+        webhooks: getInput("webhooks"),
+        exportName: getInput("export"),
         registry,
         version,
         title: getInput("title") || name,
@@ -32445,12 +32485,9 @@ function createJiti(id, opts = {}) {
 
 /* harmony default export */ const jiti_static = ((/* unused pure expression or super */ null && (createJiti)));
 
-;// CONCATENATED MODULE: ./src/is-record.ts
-function is_record_isRecord(value) {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 ;// CONCATENATED MODULE: ./src/load-events.ts
+
+
 
 
 
@@ -32459,14 +32496,28 @@ function is_record_isRecord(value) {
  * extensionless imports or CJS, which Node's type stripping won't run.
  * `jiti/static` imports its babel transform statically so ncc bundles it.
  */
-async function loadEvents(path, exportName) {
-    const jiti = createJiti((0,external_node_url_.pathToFileURL)(path).href, { interopDefault: true });
-    const module = await jiti.import(path);
-    const events = is_record_isRecord(module) ? module[exportName] : undefined;
-    if (!is_record_isRecord(events)) {
-        throw new Error(`${path} has no "${exportName}" export holding an object of event schemas`);
+async function loadEvents(workingDirectory, file, exportName) {
+    const path = file ? (0,external_node_path_.resolve)(workingDirectory, file) : await findWebhooksFile(workingDirectory);
+    // Without interopDefault the namespace keeps every export, so a second instance can't hide behind the default.
+    const jiti = createJiti((0,external_node_url_.pathToFileURL)(path).href, { interopDefault: false });
+    return eventsFromModule(await jiti.import(path), path, exportName || undefined);
+}
+async function findWebhooksFile(workingDirectory) {
+    for (const file of WEBHOOKS_FILES) {
+        const path = (0,external_node_path_.resolve)(workingDirectory, file);
+        if (await load_events_exists(path))
+            return path;
     }
-    return events;
+    throw new Error(`no webhooks file in ${workingDirectory}: looked for webhooks.ts (or .js) in ., src, lib, server and utils; set the webhooks input`);
+}
+async function load_events_exists(path) {
+    try {
+        await (0,promises_.access)(path);
+        return true;
+    }
+    catch {
+        return false;
+    }
 }
 
 ;// CONCATENATED MODULE: ./src/main.ts
@@ -32479,7 +32530,7 @@ async function loadEvents(path, exportName) {
 async function run() {
     const inputs = parseInputs((name) => getInput(name), process.env);
     const workingDirectory = (0,external_node_path_.resolve)(inputs.workingDirectory);
-    const events = await loadEvents((0,external_node_path_.resolve)(workingDirectory, inputs.events), inputs.exportName);
+    const events = await loadEvents(workingDirectory, inputs.webhooks, inputs.exportName);
     // No description key at all when unset: an undefined value would change the hash.
     const info = { title: inputs.title, version: inputs.version };
     if (inputs.description)

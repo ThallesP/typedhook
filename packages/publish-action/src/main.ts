@@ -15,7 +15,7 @@ type Published = { status: "created" | "unchanged" | "dry-run"; version: string;
 export async function run(): Promise<void> {
   const inputs = parseInputs((name) => core.getInput(name), process.env);
   const workingDirectory = resolve(inputs.workingDirectory);
-  const events = await loadEvents(resolve(workingDirectory, inputs.events), inputs.exportName);
+  const events = await loadEvents(workingDirectory, inputs.webhooks, inputs.exportName);
 
   // No description key at all when unset: an undefined value would change the hash.
   const info: OpenAPIInfo = { title: inputs.title, version: inputs.version };

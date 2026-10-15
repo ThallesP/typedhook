@@ -1,17 +1,16 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { type OpenAPIInfo, isStrictSemver, pushDocument, toOpenAPI } from "@typedhook/verify/registry";
 import { type Env, findProject, registryUrl } from "../config";
 import { githubOidcToken } from "../github-oidc";
-import { isRecord } from "../is-record";
+import { loadEvents } from "../load-events";
 
 export type PushOptions = {
-  /** Module exporting the event map. */
-  events: string;
+  /** Module exporting the webhooks() instance; found by name when unset. */
+  webhooks?: string;
   name: string;
   version: string;
-  /** Export holding the event map. */
+  /** Export holding the instance, when the module exports several. */
   exportName?: string;
   title?: string;
   description?: string;
@@ -24,12 +23,12 @@ export type PushOptions = {
   log?: (line: string) => void;
 };
 
-/** `typedhook push --events <file> --name <name> --version <semver>` */
+/** `typedhook push --name <name> --version <semver> [--webhooks <file>]` */
 export async function push({
-  events,
+  webhooks,
   name,
   version,
-  exportName = "events",
+  exportName,
   title = name,
   description,
   out,
@@ -45,7 +44,7 @@ export async function push({
   }
   const info: OpenAPIInfo = { title, version };
   if (description) info.description = description;
-  const document = toOpenAPI(await loadEvents(resolve(cwd, events), exportName), info);
+  const document = toOpenAPI(await loadEvents({ cwd, file: webhooks, exportName }), info);
 
   if (out) {
     await writeFile(resolve(cwd, out), `${JSON.stringify(document, null, 2)}\n`);
@@ -61,26 +60,4 @@ export async function push({
   const token = await githubOidcToken({ audience: url, env });
   const { status, hash } = await pushDocument({ registryUrl: url, registry, version, document, token });
   log(`${status} ${registry}@${version} (${hash})`);
-}
-
-async function loadEvents(path: string, exportName: string): Promise<Record<string, unknown>> {
-  const module = await importModule(path);
-  const events = isRecord(module) ? module[exportName] : undefined;
-  if (!isRecord(events)) {
-    throw new Error(`${path} has no "${exportName}" export holding an object of event schemas`);
-  }
-  return events;
-}
-
-async function importModule(path: string): Promise<unknown> {
-  try {
-    return await import(pathToFileURL(path).href);
-  } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
-    // Native import only strips types on Bun and Node 22.18+; the CLI supports Node 20.
-    const hint = /\.[cm]?tsx?$/.test(path)
-      ? ". TypeScript event files need Bun or Node 22.18+; on older Node, point --events at compiled JavaScript"
-      : "";
-    throw new Error(`can't import ${path}: ${reason}${hint}`, { cause });
-  }
 }
