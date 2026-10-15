@@ -89,6 +89,7 @@ jobs:
           pattern: findings-*
           path: findings
       - run: |
+          shopt -s nullglob
           {
             cat <<'EOF'
           Two reviewers reviewed pull request #${{ github.event.pull_request.number }} independently. Their findings are below as JSON, one section per reviewer. A reviewer with no section failed to run.
