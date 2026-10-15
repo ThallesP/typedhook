@@ -1,0 +1,119 @@
+name: Dual review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: dual-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - reviewer: fable
+            model: anthropic/claude-fable
+          - reviewer: codex
+            model: openai/gpt-sol
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: review
+        uses: pullfrog/pullfrog@v0
+        with:
+          model: ${{ matrix.model }}
+          push: disabled
+          progress_comments: disabled
+          timeout: 30m
+          prompt: |
+            Review pull request #${{ github.event.pull_request.number }}. Check out the PR and read its full diff, plus whatever surrounding code you need to judge it.
+
+            Look for correctness bugs, security problems, broken edge cases, missing error handling and changes that break the public API of the published packages. Skip style nits and anything a linter or the type checker would catch. Only report a finding you have verified against the code at the PR head.
+
+            Do not post a review, comment or reply, and do not push anything. Another job merges your findings with a second reviewer's and posts one review. Return your findings with set_output. `line` is a line number in the new version of the file that is part of the diff.
+          output_schema: |
+            {
+              "type": "object",
+              "required": ["summary", "findings"],
+              "properties": {
+                "summary": { "type": "string" },
+                "findings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["path", "line", "severity", "title", "body"],
+                    "properties": {
+                      "path": { "type": "string" },
+                      "line": { "type": "integer" },
+                      "severity": { "enum": ["high", "medium", "low"] },
+                      "title": { "type": "string" },
+                      "body": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+      - env:
+          RESULT: ${{ steps.review.outputs.result }}
+        run: printf '%s' "$RESULT" > findings.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findings-${{ matrix.reviewer }}
+          path: findings.json
+
+  merge:
+    needs: review
+    if: ${{ !cancelled() && needs.review.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: findings-*
+          path: findings
+      - run: |
+          shopt -s nullglob
+          {
+            cat <<'EOF'
+          Two reviewers reviewed pull request #${{ github.event.pull_request.number }} independently. Their findings are below as JSON, one section per reviewer. A reviewer with no section failed to run.
+
+          Post one review on the PR with create_pull_request_review, event COMMENT:
+
+          1. Merge the findings. Two findings are duplicates when they describe the same underlying problem, even if they point at different lines or word it differently. Keep the clearer wording and the more precise line.
+          2. Read the existing review threads on the PR with get_review_comments. Drop any finding an earlier review already raised, resolved or not.
+          3. When the reviewers disagree, or a finding looks wrong, check it against the code at the PR head and drop it if it does not hold.
+          4. Post each remaining finding as an inline comment on its path and line. Start the comment with the reviewer that found it in brackets: [fable], [codex] or [fable + codex].
+          5. In the review body, list how many findings each reviewer reported, how many were duplicates and how many were dropped, and name any reviewer that failed. If nothing is left, say so in a short body with no inline comments.
+
+          Do not push anything.
+          EOF
+            for file in findings/*/findings.json; do
+              printf '\n## %s\n\n' "$(basename "$(dirname "$file")" | sed 's/^findings-//')"
+              cat "$file"
+              printf '\n'
+            done
+          } > review-prompt.md
+      - uses: pullfrog/pullfrog@v0
+        with:
+          model: anthropic/claude-fable
+          push: disabled
+          progress_comments: disabled
+          timeout: 20m
+          prompt_file: review-prompt.md
