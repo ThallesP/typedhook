@@ -19,6 +19,26 @@ describe("eventsFromModule", () => {
     expect(eventsFromModule(wh, "webhooks.cjs")).toBe(events);
   });
 
+  test("still applies export and the several-instances check to a CommonJS instance", () => {
+    const primary = { ...wh, other };
+    expect(eventsFromModule(primary, "webhooks.cjs", "other")).toBe(otherEvents);
+    expect(() => eventsFromModule(primary, "webhooks.cjs")).toThrow(
+      "webhooks.cjs exports several webhooks() instances (default, other)",
+    );
+  });
+
+  test("unwraps CommonJS compiled from export default", () => {
+    const compiled = { __esModule: true, default: { __esModule: true, default: wh } };
+    expect(eventsFromModule(compiled, "webhooks.cjs")).toBe(events);
+    expect(eventsFromModule(compiled, "webhooks.cjs", "default")).toBe(events);
+  });
+
+  test("points at the SDK upgrade for an instance without the brand", () => {
+    expect(() => eventsFromModule({ wh: { send() {} } }, "webhooks.ts")).toThrow(
+      "upgrade @typedhook/sdk to a version that marks its instances",
+    );
+  });
+
   test("picks the named export among several instances", () => {
     expect(eventsFromModule({ wh, other }, "webhooks.ts", "other")).toBe(otherEvents);
   });

@@ -58,7 +58,7 @@ export const wh = webhooks({
 
 Set `webhooks` to point at another file, and `export` when the file exports more than one instance.
 
-The file is imported the way your app imports it, with everything it imports (zod, your database client, your own files). Install dependencies first so they resolve. TypeScript, extensionless relative imports, ESM and CJS all work, but TypeScript path aliases like `@/db` don't yet. Anything the file does when it's imported runs in the job too, so code that reads a required environment variable or connects to a database at import time fails there.
+The file is imported the way your app imports it, with everything it imports (zod, your database client, your own files). Install dependencies first so they resolve. TypeScript, extensionless relative imports, ESM and CJS all work, but TypeScript path aliases like `@/db` don't yet, and neither does code using `import.meta` members other than `url`, `dirname` and `filename` (such as `import.meta.main`). Anything the file does when it's imported runs in the job too, so code that reads a required environment variable or connects to a database at import time fails there.
 
 ### Validate in pull requests
 

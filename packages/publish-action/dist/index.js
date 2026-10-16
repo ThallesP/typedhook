@@ -32366,8 +32366,7 @@ var WEBHOOKS_FILES = DIRECTORIES.flatMap(
   (directory) => EXTENSIONS.map((extension) => `${directory}webhooks.${extension}`)
 );
 function eventsFromModule(module, path, exportName) {
-  if (isBranded(module)) return module["~typedhook"].events;
-  const exports = isRecord(module) ? module : {};
+  const exports = exportsOf(module);
   if (exportName) {
     const value = exports[exportName];
     if (!isBranded(value)) {
@@ -32381,9 +32380,9 @@ function eventsFromModule(module, path, exportName) {
   }
   const [first, ...others] = nameByInstance.keys();
   if (!first) {
-    throw new Error(
-      `${path} doesn't export a webhooks() instance from @typedhook/sdk; export the one you call send() on`
-    );
+    const hasUnbranded = Object.values(exports).some((value) => isRecord(value) && typeof value.send === "function");
+    const hint = hasUnbranded ? "; it exports an object with send(), so upgrade @typedhook/sdk to a version that marks its instances" : "; export the one you call send() on";
+    throw new Error(`${path} doesn't export a webhooks() instance from @typedhook/sdk${hint}`);
   }
   if (others.length > 0) {
     const names = [...nameByInstance.values()].join(", ");
@@ -32392,6 +32391,13 @@ function eventsFromModule(module, path, exportName) {
     );
   }
   return first["~typedhook"].events;
+}
+function exportsOf(module) {
+  if (isBranded(module)) return { default: module, ...module };
+  if (!isRecord(module)) return {};
+  const { default: defaultExport } = module;
+  if (isRecord(defaultExport) && !isBranded(defaultExport)) return { ...module, ...exportsOf(defaultExport) };
+  return module;
 }
 function isBranded(value) {
   if (!isRecord(value)) return false;
@@ -32575,7 +32581,10 @@ async function writeSummary(registry, { status, version, hash }) {
 ;// CONCATENATED MODULE: ./src/index.ts
 
 
-run().catch((error) => {
+// Exits even when the sender's webhooks file left a client or timer holding the event loop open.
+run()
+    .catch((error) => {
     setFailed(error instanceof Error ? error : String(error));
-});
+})
+    .finally(() => process.exit());
 

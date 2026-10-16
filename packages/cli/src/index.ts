@@ -89,3 +89,5 @@ try {
   console.error(`typedhook: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 }
+// push imports the sender's webhooks file, which may leave a client or timer holding the event loop open.
+process.exit();

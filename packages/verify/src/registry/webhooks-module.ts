@@ -19,9 +19,7 @@ export function eventsFromModule(
   path: string,
   exportName?: string,
 ): Record<string, unknown> {
-  // A CommonJS `module.exports = wh` comes back as the instance itself.
-  if (isBranded(module)) return module["~typedhook"].events;
-  const exports = isRecord(module) ? module : {};
+  const exports = exportsOf(module);
 
   if (exportName) {
     const value = exports[exportName];
@@ -38,9 +36,11 @@ export function eventsFromModule(
   }
   const [first, ...others] = nameByInstance.keys();
   if (!first) {
-    throw new Error(
-      `${path} doesn't export a webhooks() instance from @typedhook/sdk; export the one you call send() on`,
-    );
+    const hasUnbranded = Object.values(exports).some((value) => isRecord(value) && typeof value.send === "function");
+    const hint = hasUnbranded
+      ? "; it exports an object with send(), so upgrade @typedhook/sdk to a version that marks its instances"
+      : "; export the one you call send() on";
+    throw new Error(`${path} doesn't export a webhooks() instance from @typedhook/sdk${hint}`);
   }
   if (others.length > 0) {
     const names = [...nameByInstance.values()].join(", ");
@@ -49,6 +49,19 @@ export function eventsFromModule(
     );
   }
   return first["~typedhook"].events;
+}
+
+/**
+ * Loaders hand back different shapes for one file: a CommonJS
+ * `module.exports = wh` arrives as the instance itself, and CommonJS compiled
+ * from `export default wh` nests its exports under `default`.
+ */
+function exportsOf(module: unknown): Record<string, unknown> {
+  if (isBranded(module)) return { default: module, ...module };
+  if (!isRecord(module)) return {};
+  const { default: defaultExport } = module;
+  if (isRecord(defaultExport) && !isBranded(defaultExport)) return { ...module, ...exportsOf(defaultExport) };
+  return module;
 }
 
 function isBranded(value: unknown): value is Branded {
