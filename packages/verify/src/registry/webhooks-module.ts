@@ -65,18 +65,19 @@ function exportsOf(module: unknown): Record<string, unknown> {
 /**
  * The whole `module.exports` of a CommonJS file, out of the namespace Node
  * builds around it. Node names exports by reading the source, so the
- * namespace misses ones assigned dynamically or spread in; `default` (and
- * `module.exports` on newer Node) holds them all, and carries every named
- * export with the same value, which an ESM `export default {...}` needn't.
+ * namespace misses ones that are spread in or assigned dynamically. Node adds
+ * a `module.exports` key to CommonJS namespaces only, so ESM is never
+ * unwrapped; on Node versions without it, only CommonJS compiled from ESM
+ * (flagged `__esModule` on its default) is.
  */
 function commonJsExports(module: unknown): unknown {
   if (!isRecord(module) || isBranded(module)) return undefined;
-  const whole = module["module.exports"] ?? module.default;
-  if (!isRecord(whole) || whole === module) return undefined;
-  const carriesNamedExports = Object.entries(module).every(
-    ([name, value]) => name === "default" || name === "module.exports" || whole[name] === value,
-  );
-  return carriesNamedExports ? whole : undefined;
+  if (Object.hasOwn(module, "module.exports")) return module["module.exports"];
+  const { default: defaultExport } = module;
+  if (isRecord(defaultExport) && defaultExport.__esModule === true && defaultExport !== module) {
+    return defaultExport;
+  }
+  return undefined;
 }
 
 function isBranded(value: unknown): value is Branded {

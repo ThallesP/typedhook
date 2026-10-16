@@ -15,9 +15,18 @@ export async function loadEvents(
   exportName: string,
 ): Promise<Record<string, unknown>> {
   const path = file ? resolve(workingDirectory, file) : await findWebhooksFile(workingDirectory);
+  return eventsFromModule(await importModule(path), path, exportName || undefined);
+}
+
+async function importModule(path: string): Promise<unknown> {
   // Without interopDefault the namespace keeps every export, so a second instance can't hide behind the default.
   const jiti = createJiti(pathToFileURL(path).href, { interopDefault: false });
-  return eventsFromModule(await jiti.import(path), path, exportName || undefined);
+  try {
+    return await jiti.import(path);
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`can't import ${path}: ${reason}`, { cause });
+  }
 }
 
 async function findWebhooksFile(workingDirectory: string): Promise<string> {

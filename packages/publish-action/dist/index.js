@@ -32399,12 +32399,12 @@ function exportsOf(module) {
 }
 function commonJsExports(module) {
   if (!isRecord(module) || isBranded(module)) return void 0;
-  const whole = module["module.exports"] ?? module.default;
-  if (!isRecord(whole) || whole === module) return void 0;
-  const carriesNamedExports = Object.entries(module).every(
-    ([name, value]) => name === "default" || name === "module.exports" || whole[name] === value
-  );
-  return carriesNamedExports ? whole : void 0;
+  if (Object.hasOwn(module, "module.exports")) return module["module.exports"];
+  const { default: defaultExport } = module;
+  if (isRecord(defaultExport) && defaultExport.__esModule === true && defaultExport !== module) {
+    return defaultExport;
+  }
+  return void 0;
 }
 function isBranded(value) {
   if (!isRecord(value)) return false;
@@ -32511,9 +32511,18 @@ function createJiti(id, opts = {}) {
  */
 async function loadEvents(workingDirectory, file, exportName) {
     const path = file ? (0,external_node_path_.resolve)(workingDirectory, file) : await findWebhooksFile(workingDirectory);
+    return eventsFromModule(await importModule(path), path, exportName || undefined);
+}
+async function importModule(path) {
     // Without interopDefault the namespace keeps every export, so a second instance can't hide behind the default.
     const jiti = createJiti((0,external_node_url_.pathToFileURL)(path).href, { interopDefault: false });
-    return eventsFromModule(await jiti.import(path), path, exportName || undefined);
+    try {
+        return await jiti.import(path);
+    }
+    catch (cause) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        throw new Error(`can't import ${path}: ${reason}`, { cause });
+    }
 }
 async function findWebhooksFile(workingDirectory) {
     for (const file of WEBHOOKS_FILES) {
