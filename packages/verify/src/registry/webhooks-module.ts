@@ -54,18 +54,29 @@ export function eventsFromModule(
 /**
  * Loaders hand back different shapes for one file. A CommonJS
  * `module.exports = wh` arrives as the instance itself, whose own properties
- * are its named exports and which is its own default, as in Node. CommonJS
- * compiled from ESM arrives with its whole exports object, flagged
- * `__esModule`, under `default`.
+ * are its named exports and which is its own default, as in Node.
  */
 function exportsOf(module: unknown): Record<string, unknown> {
-  if (isBranded(module)) return { ...module, default: module };
-  if (!isRecord(module)) return {};
-  const { default: defaultExport } = module;
-  if (isRecord(defaultExport) && defaultExport.__esModule === true && defaultExport !== module) {
-    return defaultExport;
-  }
-  return module;
+  const exports = commonJsExports(module) ?? module;
+  if (isBranded(exports)) return { ...exports, default: exports };
+  return isRecord(exports) ? exports : {};
+}
+
+/**
+ * The whole `module.exports` of a CommonJS file, out of the namespace Node
+ * builds around it. Node names exports by reading the source, so the
+ * namespace misses ones assigned dynamically or spread in; `default` (and
+ * `module.exports` on newer Node) holds them all, and carries every named
+ * export with the same value, which an ESM `export default {...}` needn't.
+ */
+function commonJsExports(module: unknown): unknown {
+  if (!isRecord(module) || isBranded(module)) return undefined;
+  const whole = module["module.exports"] ?? module.default;
+  if (!isRecord(whole) || whole === module) return undefined;
+  const carriesNamedExports = Object.entries(module).every(
+    ([name, value]) => name === "default" || name === "module.exports" || whole[name] === value,
+  );
+  return carriesNamedExports ? whole : undefined;
 }
 
 function isBranded(value: unknown): value is Branded {

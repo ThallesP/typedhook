@@ -42,6 +42,15 @@ describe("eventsFromModule", () => {
     expect(eventsFromModule({ wh, default: { wh: other } }, "webhooks.ts")).toBe(events);
   });
 
+  test("reads CommonJS exports Node's namespace misses off module.exports", () => {
+    const whole = { wh, other };
+    expect(() => eventsFromModule({ default: whole, "module.exports": whole, wh }, "webhooks.cjs")).toThrow(
+      "exports several webhooks() instances (wh, other)",
+    );
+    expect(eventsFromModule({ default: whole, wh }, "webhooks.cjs", "other")).toBe(otherEvents);
+    expect(eventsFromModule({ default: { wh }, "module.exports": { wh } }, "webhooks.cjs")).toBe(events);
+  });
+
   test("stops at a default export that is the module itself", () => {
     const exports: Record<string, unknown> = { __esModule: true, wh };
     exports.default = exports;

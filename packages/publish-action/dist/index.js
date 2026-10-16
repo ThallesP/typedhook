@@ -32393,13 +32393,18 @@ function eventsFromModule(module, path, exportName) {
   return first["~typedhook"].events;
 }
 function exportsOf(module) {
-  if (isBranded(module)) return { ...module, default: module };
-  if (!isRecord(module)) return {};
-  const { default: defaultExport } = module;
-  if (isRecord(defaultExport) && defaultExport.__esModule === true && defaultExport !== module) {
-    return defaultExport;
-  }
-  return module;
+  const exports = commonJsExports(module) ?? module;
+  if (isBranded(exports)) return { ...exports, default: exports };
+  return isRecord(exports) ? exports : {};
+}
+function commonJsExports(module) {
+  if (!isRecord(module) || isBranded(module)) return void 0;
+  const whole = module["module.exports"] ?? module.default;
+  if (!isRecord(whole) || whole === module) return void 0;
+  const carriesNamedExports = Object.entries(module).every(
+    ([name, value]) => name === "default" || name === "module.exports" || whole[name] === value
+  );
+  return carriesNamedExports ? whole : void 0;
 }
 function isBranded(value) {
   if (!isRecord(value)) return false;
