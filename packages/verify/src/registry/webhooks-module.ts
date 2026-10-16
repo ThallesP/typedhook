@@ -52,15 +52,19 @@ export function eventsFromModule(
 }
 
 /**
- * Loaders hand back different shapes for one file: a CommonJS
- * `module.exports = wh` arrives as the instance itself, and CommonJS compiled
- * from `export default wh` nests its exports under `default`.
+ * Loaders hand back different shapes for one file. A CommonJS
+ * `module.exports = wh` arrives as the instance itself, whose own properties
+ * are its named exports and which is its own default, as in Node. CommonJS
+ * compiled from ESM arrives with its whole exports object, flagged
+ * `__esModule`, under `default`.
  */
 function exportsOf(module: unknown): Record<string, unknown> {
-  if (isBranded(module)) return { default: module, ...module };
+  if (isBranded(module)) return { ...module, default: module };
   if (!isRecord(module)) return {};
   const { default: defaultExport } = module;
-  if (isRecord(defaultExport) && !isBranded(defaultExport)) return { ...module, ...exportsOf(defaultExport) };
+  if (isRecord(defaultExport) && defaultExport.__esModule === true && defaultExport !== module) {
+    return defaultExport;
+  }
   return module;
 }
 

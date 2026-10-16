@@ -23,7 +23,7 @@ describe("eventsFromModule", () => {
     const primary = { ...wh, other };
     expect(eventsFromModule(primary, "webhooks.cjs", "other")).toBe(otherEvents);
     expect(() => eventsFromModule(primary, "webhooks.cjs")).toThrow(
-      "webhooks.cjs exports several webhooks() instances (default, other)",
+      "webhooks.cjs exports several webhooks() instances (other, default)",
     );
   });
 
@@ -31,6 +31,22 @@ describe("eventsFromModule", () => {
     const compiled = { __esModule: true, default: { __esModule: true, default: wh } };
     expect(eventsFromModule(compiled, "webhooks.cjs")).toBe(events);
     expect(eventsFromModule(compiled, "webhooks.cjs", "default")).toBe(events);
+  });
+
+  test("treats a CommonJS instance as its own default, as Node does", () => {
+    expect(eventsFromModule({ ...wh, default: other }, "webhooks.cjs")).toBe(events);
+  });
+
+  test("doesn't let a plain default object shadow named exports", () => {
+    expect(eventsFromModule({ wh, default: { wh: other } }, "webhooks.ts", "wh")).toBe(events);
+    expect(eventsFromModule({ wh, default: { wh: other } }, "webhooks.ts")).toBe(events);
+  });
+
+  test("stops at a default export that is the module itself", () => {
+    const exports: Record<string, unknown> = { __esModule: true, wh };
+    exports.default = exports;
+    expect(eventsFromModule(exports, "webhooks.cjs", "wh")).toBe(events);
+    expect(eventsFromModule({ default: exports, "module.exports": exports, wh }, "webhooks.cjs")).toBe(events);
   });
 
   test("points at the SDK upgrade for an instance without the brand", () => {

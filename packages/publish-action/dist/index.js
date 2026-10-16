@@ -32393,10 +32393,12 @@ function eventsFromModule(module, path, exportName) {
   return first["~typedhook"].events;
 }
 function exportsOf(module) {
-  if (isBranded(module)) return { default: module, ...module };
+  if (isBranded(module)) return { ...module, default: module };
   if (!isRecord(module)) return {};
   const { default: defaultExport } = module;
-  if (isRecord(defaultExport) && !isBranded(defaultExport)) return { ...module, ...exportsOf(defaultExport) };
+  if (isRecord(defaultExport) && defaultExport.__esModule === true && defaultExport !== module) {
+    return defaultExport;
+  }
   return module;
 }
 function isBranded(value) {
@@ -32581,10 +32583,18 @@ async function writeSummary(registry, { status, version, hash }) {
 ;// CONCATENATED MODULE: ./src/index.ts
 
 
-// Exits even when the sender's webhooks file left a client or timer holding the event loop open.
+// Exits even when the sender's webhooks file left a client or timer holding the event loop open,
+// once the output has been written, since process.exit() drops pending pipe writes.
 run()
     .catch((error) => {
     setFailed(error instanceof Error ? error : String(error));
 })
-    .finally(() => process.exit());
+    .finally(async () => {
+    await flushed(process.stdout);
+    await flushed(process.stderr);
+    process.exit();
+});
+function flushed(stream) {
+    return new Promise((resolve) => stream.write("", () => resolve()));
+}
 

@@ -89,5 +89,12 @@ try {
   console.error(`typedhook: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 }
-// push imports the sender's webhooks file, which may leave a client or timer holding the event loop open.
+// push imports the sender's webhooks file, which may leave a client or timer holding the event loop
+// open. Exit once the output has been written, since process.exit() drops pending pipe writes.
+await flushed(process.stdout);
+await flushed(process.stderr);
 process.exit();
+
+function flushed(stream: NodeJS.WriteStream): Promise<void> {
+  return new Promise((resolve) => stream.write("", () => resolve()));
+}
