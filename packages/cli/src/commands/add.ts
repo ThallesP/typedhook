@@ -1,10 +1,12 @@
 import { join } from "node:path";
-import { type RegistryVersion, parseRegistry, resolveRegistry } from "@typedhook/verify/registry";
+import { type Lang, type RegistryVersion, parseRegistry, resolveRegistry } from "@typedhook/verify/registry";
 import {
   type Env,
   defaultConfig,
-  findPackageRoot,
   findProject,
+  findProjectRoot,
+  langOf,
+  outOf,
   readLock,
   readText,
   registryUrl,
@@ -18,6 +20,8 @@ import { hasDependency, withPostinstall } from "../postinstall";
 export type AddOptions = {
   /** Saved as `registry` in typedhook.json. */
   registryUrl?: string;
+  /** Only for a new typedhook.json; an existing one keeps its language. */
+  lang?: Lang;
   cwd?: string;
   env?: Env;
   log?: (line: string) => void;
@@ -26,13 +30,21 @@ export type AddOptions = {
 /** `typedhook add owner/name[@range]...` */
 export async function add(
   specs: string[],
-  { registryUrl: savedUrl, cwd = process.cwd(), env = process.env, log = console.log }: AddOptions = {},
+  { registryUrl: savedUrl, lang, cwd = process.cwd(), env = process.env, log = console.log }: AddOptions = {},
 ): Promise<void> {
   if (specs.length === 0) throw new Error("usage: typedhook add owner/name[@range] ...");
-  const { root, config } = (await findProject(cwd)) ?? {
-    root: await findPackageRoot(cwd),
-    config: defaultConfig(),
-  };
+  const project = await findProject(cwd);
+  const root = project?.root ?? (await findProjectRoot(cwd, lang ?? "typescript"));
+  const config = project?.config ?? defaultConfig(lang);
+  // A typedhook.json that only holds publish settings takes whichever language comes first.
+  if (lang !== undefined && langOf(config) !== lang) {
+    if (Object.keys(config.registries).length > 0) {
+      throw new Error(
+        `${join(root, "typedhook.json")} generates ${langOf(config)}; use one typedhook.json per language, in the ${lang} project's directory`,
+      );
+    }
+    config.lang = lang;
+  }
   if (savedUrl) config.registry = savedUrl;
   const url = registryUrl(config, env);
   const lock = await readLock(root);
@@ -56,13 +68,14 @@ export async function add(
     pulled.push({ registry, range: savedRange, path, resolved });
   }
   for (const { registry, range, path, resolved } of pulled) {
-    await writeGeneratedFile(join(root, path), registry, resolved);
+    await writeGeneratedFile(langOf(config), join(root, path), registry, resolved);
     log(`added ${registry}@${range} (${resolved.version}) → ${path}`);
   }
   await writeConfig(root, config);
   await writeLock(root, lock);
-  await addPostinstall(root, log);
-  log(`commit typedhook.json, typedhook.lock and ${config.out} so installs work offline`);
+  if (langOf(config) === "typescript") await addPostinstall(root, log);
+  else log(`run \`typedhook pull --check\` in CI to keep ${outOf(config)} in sync with typedhook.lock`);
+  log(`commit typedhook.json, typedhook.lock and ${outOf(config)} so installs work offline`);
 }
 
 /** `owner/name` resolves `latest`, saved as `^<version>`. */

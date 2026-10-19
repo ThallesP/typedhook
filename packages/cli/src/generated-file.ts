@@ -2,13 +2,15 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   GENERATOR_VERSION,
+  type Lang,
   type RegistryVersion,
-  generateTypes,
+  generateCode,
+  generatedFileName,
   hashText,
   parseRegistry,
   readGeneratedHeader,
 } from "@typedhook/verify/registry";
-import { type LockEntry, type WebhooksConfig, readText, writeText } from "./config";
+import { type LockEntry, type WebhooksConfig, langOf, outOf, readText, writeText } from "./config";
 
 export type GeneratedFile = {
   /** `owner/name` */
@@ -20,14 +22,15 @@ export type GeneratedFile = {
 
 /** One file per registry, named after its name part. */
 export function generatedFiles(config: WebhooksConfig): GeneratedFile[] {
-  const registryByName = new Map<string, string>();
+  const registryByPath = new Map<string, string>();
+  const lang = langOf(config);
   return Object.entries(config.registries).map(([registry, range]) => {
     const { name } = parseRegistry(registry);
-    const path = join(config.out, `${name}.ts`);
+    const path = join(outOf(config), generatedFileName(lang, name));
     // Lowercased because macOS and Windows file systems ignore case.
-    const other = registryByName.get(name.toLowerCase());
+    const other = registryByPath.get(path.toLowerCase());
     if (other) throw new Error(`${other} and ${registry} would both generate ${path}; keep one of them`);
-    registryByName.set(name.toLowerCase(), registry);
+    registryByPath.set(path.toLowerCase(), registry);
     return { registry, range, path };
   });
 }
@@ -60,10 +63,11 @@ export async function staleReason(
 }
 
 export async function writeGeneratedFile(
+  lang: Lang,
   path: string,
   registry: string,
   { version, hash, document }: RegistryVersion,
 ): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeText(path, await generateTypes({ registry, version, hash, document }));
+  await writeText(path, await generateCode(lang, { registry, version, hash, document }));
 }
