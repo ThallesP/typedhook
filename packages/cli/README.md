@@ -15,7 +15,7 @@ The version is picked from what changed since the latest one: removed events or 
 
 It publishes as you; `--owner` picks a GitHub organization you belong to. The flags are saved in `typedhook.json`, so later it's just `npx typedhook publish`. In GitHub Actions it uses the job's OIDC token (grant `permissions: id-token: write`), with nothing to configure or rotate.
 
-Elsewhere, `TYPEDHOOK_TOKEN` takes the token `typedhook login` saved in `~/.config/typedhook/credentials.json`. It's that person's token: it stops working 90 days after the login, it only publishes for an organization within 7 days of the login (that's when org membership was last checked), and their next `typedhook login` revokes it. That suits a script you run yourself; for CI, prefer GitHub Actions.
+Elsewhere, `TYPEDHOOK_TOKEN` takes the token `typedhook login` saved in `~/.config/typedhook/credentials.json`. It's that person's token: it stops working 90 days after the login, it publishes for an organization only within 7 days of that person's latest login (that's when org membership is checked), and running `typedhook login` again on the machine that holds it revokes it (a login elsewhere leaves it working). That suits a script you run yourself; for CI, prefer GitHub Actions.
 
 ## Receive
 
