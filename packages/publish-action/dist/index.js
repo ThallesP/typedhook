@@ -33822,7 +33822,8 @@ function comparer(old, next, event, changes) {
     }
     const oldTags = variantTags(old, oldMembers);
     const newTags = variantTags(next, newMembers);
-    const isTaggedUnion = [...oldTags.values()].some((tags) => tags.length > 0);
+    const isUnion = oldTags.size > 1 || newTags.size > 1;
+    const isTaggedUnion = isUnion && [...oldTags.values()].some((tags) => tags.length > 0);
     const matched = /* @__PURE__ */ new Set();
     for (const shape of newMembers) {
       const counterpart = counterpartOf(shape, oldMembers, matched, newTags.get(shape) ?? [], isTaggedUnion, oldTags);

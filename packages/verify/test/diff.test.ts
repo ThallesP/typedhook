@@ -348,3 +348,25 @@ describe("diffDocuments and a value every variant shares", () => {
     ]);
   });
 });
+
+describe("diffDocuments and a lone object with a pinned value", () => {
+  test("a changed pinned value doesn't hide the object's other changes", () => {
+    const before = document({ a: z.object({ api_version: z.literal("2024-01-01"), id: z.string(), amount: z.number() }) });
+    const after = document({ a: z.object({ api_version: z.literal("2025-01-01"), id: z.string() }) });
+    const { bump, changes } = diffDocuments(before, after);
+    expect(bump).toBe("major");
+    expect(changes).toContainEqual({ bump: "major", event: "a", path: "data.amount", message: "was removed" });
+    expect(changes).toContainEqual({ bump: "minor", event: "a", path: "data.api_version", message: 'has a new value "2025-01-01"' });
+  });
+
+  test("a second shared pinned value doesn't pair variants either", () => {
+    const paid = z.object({ kind: z.literal("paid"), object: z.literal("event"), amount: z.number() });
+    const voided = z.object({ kind: z.literal("voided"), object: z.literal("event"), reason: z.string() });
+    const disputed = z.object({ kind: z.literal("disputed"), object: z.literal("event"), caseId: z.string() });
+    const item = (...variants: [z.ZodObject, z.ZodObject, ...z.ZodObject[]]) =>
+      document({ a: z.object({ item: z.union(variants) }) });
+    expect(diffDocuments(item(paid, voided), item(disputed, paid, voided)).changes).toEqual([
+      { bump: "minor", event: "a", path: "data.item", message: 'has a new variant kind="disputed"' },
+    ]);
+  });
+});

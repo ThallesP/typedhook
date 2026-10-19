@@ -162,7 +162,10 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
     }
     const oldTags = variantTags(old, oldMembers);
     const newTags = variantTags(next, newMembers);
-    const isTaggedUnion = [...oldTags.values()].some((tags) => tags.length > 0);
+    // Pairing by tag is for unions; one object on each side is the same object
+    // even when a pinned value changed (`api_version`), and its fields compare.
+    const isUnion = oldTags.size > 1 || newTags.size > 1;
+    const isTaggedUnion = isUnion && [...oldTags.values()].some((tags) => tags.length > 0);
     const matched = new Set<Shape>();
     for (const shape of newMembers) {
       const counterpart = counterpartOf(shape, oldMembers, matched, newTags.get(shape) ?? [], isTaggedUnion, oldTags);
