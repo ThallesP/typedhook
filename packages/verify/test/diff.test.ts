@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { diffDocuments, isBumpEnough, nextVersion, versionBump } from "../src/registry/diff";
+import { type SchemaChange, diffDocuments, isBumpEnough, nextVersion, versionBump } from "../src/registry/diff";
 import { toOpenAPI } from "../src/registry/openapi";
 
 function document(events: Record<string, z.ZodType>, version = "1.0.0") {
@@ -256,5 +256,38 @@ describe("diffDocuments from the review's cases", () => {
     expect(diffDocuments(before, nullable).changes).toEqual([
       { bump: "major", event: "a", path: "data.status", message: "can now be null" },
     ]);
+  });
+});
+
+describe("diffDocuments and union variants", () => {
+  const paid = z.object({ kind: z.literal("paid"), amount: z.number() });
+  const voided = z.object({ kind: z.literal("voided"), reason: z.string() });
+  const disputed = z.object({ kind: z.literal("disputed"), caseId: z.string() });
+  const item = (...variants: [z.ZodObject, z.ZodObject, ...z.ZodObject[]]) =>
+    document({ a: z.object({ item: z.union(variants) }) });
+
+  test("a new tagged variant is minor, wherever it's listed", () => {
+    const added: SchemaChange = { bump: "minor", event: "a", path: "data.item", message: 'has a new variant kind="disputed"' };
+    expect(diffDocuments(item(paid, voided), item(paid, voided, disputed))).toEqual({ bump: "minor", changes: [added] });
+    expect(diffDocuments(item(paid, voided), item(disputed, paid, voided))).toEqual({ bump: "minor", changes: [added] });
+    // Same types, different document: only a patch.
+    expect(diffDocuments(item(paid, voided), item(voided, paid)).bump).toBe("patch");
+  });
+
+  test("a removed tagged variant is minor too", () => {
+    expect(diffDocuments(item(paid, voided, disputed), item(paid, voided)).changes).toEqual([
+      { bump: "minor", event: "a", path: "data.item", message: 'no longer has the variant kind="disputed"' },
+    ]);
+  });
+
+  test("an unchanged union of arrays is no change", () => {
+    const arrays = document({ a: z.object({ item: z.union([z.array(z.string()), z.array(z.number())]) }) });
+    expect(diffDocuments(arrays, structuredClone(arrays))).toEqual({ bump: null, changes: [] });
+  });
+
+  test("integer | number against number changes no types", () => {
+    const before = document({ a: z.object({ n: z.number() }) });
+    const after = document({ a: z.object({ n: z.union([z.int(), z.number()]) }) });
+    expect(diffDocuments(before, after).bump).toBe("patch");
   });
 });

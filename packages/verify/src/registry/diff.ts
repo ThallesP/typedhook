@@ -163,7 +163,9 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
     for (const shape of newMembers) {
       const counterpart = counterpartOf(shape, oldMembers, matched);
       if (counterpart === undefined) {
-        change(...widened(shape, oldMembers, path));
+        const [tag] = shape.kind === "object" ? objectTags(next, shape) : [];
+        if (tag !== undefined && isTaggedUnion(oldMembers)) change("minor", path, `has a new variant ${tag}`);
+        else change(...widened(shape, oldMembers, path));
         continue;
       }
       matched.add(counterpart);
@@ -172,24 +174,34 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
       if (counterpart.kind === "tuple" && shape.kind === "tuple") compareTuples(counterpart, shape, path);
     }
     for (const shape of oldMembers) {
-      if (!matched.has(shape)) change("minor", path, `can no longer be ${describe(shape)}`);
+      if (matched.has(shape)) continue;
+      const [tag] = shape.kind === "object" ? objectTags(old, shape) : [];
+      change("minor", path, tag === undefined ? `can no longer be ${describe(shape)}` : `no longer has the variant ${tag}`);
     }
   }
 
+  function isTaggedUnion(oldMembers: Shape[]): boolean {
+    return oldMembers.some((member) => member.kind === "object" && objectTags(old, member).length > 0);
+  }
+
   /**
-   * The old member a new one is compared with. Objects in a union pair up by a
-   * property pinned to the same value (their own discriminator), then by
-   * position among the objects not paired yet.
+   * The old member a new one is compared with, or undefined when it's new.
+   * Objects in a tagged union pair up only by a property pinned to the same
+   * value (their own discriminator); untagged objects pair by position among
+   * the ones not paired yet. Other kinds prefer an unpaired member, but can
+   * share one, so `integer | number` against `number` is still no change.
    */
   function counterpartOf(shape: Shape, oldMembers: Shape[], matched: Set<Shape>): Shape | undefined {
     const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
-    if (shape.kind !== "object") return candidates[0];
-    const tags = objectTags(next, shape);
     const unmatched = candidates.filter((candidate) => !matched.has(candidate));
-    const tagged = unmatched.find(
-      (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag)),
-    );
-    return tagged ?? unmatched[0] ?? candidates[0];
+    if (shape.kind !== "object") return unmatched[0] ?? candidates[0];
+    const tags = objectTags(next, shape);
+    if (tags.length > 0 && isTaggedUnion(oldMembers)) {
+      return unmatched.find(
+        (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag)),
+      );
+    }
+    return unmatched[0];
   }
 
   function compareObjects(before: ObjectShape, after: ObjectShape, path: string): void {

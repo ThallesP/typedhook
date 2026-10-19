@@ -33824,7 +33824,9 @@ function comparer(old, next, event, changes) {
     for (const shape of newMembers) {
       const counterpart = counterpartOf(shape, oldMembers, matched);
       if (counterpart === void 0) {
-        change(...widened(shape, oldMembers, path));
+        const [tag] = shape.kind === "object" ? objectTags(next, shape) : [];
+        if (tag !== void 0 && isTaggedUnion(oldMembers)) change("minor", path, `has a new variant ${tag}`);
+        else change(...widened(shape, oldMembers, path));
         continue;
       }
       matched.add(counterpart);
@@ -33833,18 +33835,25 @@ function comparer(old, next, event, changes) {
       if (counterpart.kind === "tuple" && shape.kind === "tuple") compareTuples(counterpart, shape, path);
     }
     for (const shape of oldMembers) {
-      if (!matched.has(shape)) change("minor", path, `can no longer be ${describe(shape)}`);
+      if (matched.has(shape)) continue;
+      const [tag] = shape.kind === "object" ? objectTags(old, shape) : [];
+      change("minor", path, tag === void 0 ? `can no longer be ${describe(shape)}` : `no longer has the variant ${tag}`);
     }
+  }
+  function isTaggedUnion(oldMembers) {
+    return oldMembers.some((member) => member.kind === "object" && objectTags(old, member).length > 0);
   }
   function counterpartOf(shape, oldMembers, matched) {
     const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
-    if (shape.kind !== "object") return candidates[0];
-    const tags = objectTags(next, shape);
     const unmatched = candidates.filter((candidate) => !matched.has(candidate));
-    const tagged = unmatched.find(
-      (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag))
-    );
-    return tagged ?? unmatched[0] ?? candidates[0];
+    if (shape.kind !== "object") return unmatched[0] ?? candidates[0];
+    const tags = objectTags(next, shape);
+    if (tags.length > 0 && isTaggedUnion(oldMembers)) {
+      return unmatched.find(
+        (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag))
+      );
+    }
+    return unmatched[0];
   }
   function compareObjects(before, after, path) {
     for (const [key, property] of before.properties) {
