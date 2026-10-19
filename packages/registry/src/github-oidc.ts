@@ -3,6 +3,10 @@ import { type JWTVerifyGetKey, createRemoteJWKSet, jwtVerify } from "jose";
 const GITHUB_ISSUER = "https://token.actions.githubusercontent.com";
 
 export interface GithubIdentity {
+  /** `owner/repo` the workflow ran in. */
+  repository: string;
+  /** Only a public repository's name is shown as the publisher. */
+  isPublicRepository: boolean;
   repositoryOwner: string;
   /** Numeric account id as a string. Unlike the login, it survives renames. */
   repositoryOwnerId: string;
@@ -32,11 +36,14 @@ export function githubVerifier({
         algorithms: ["RS256"],
         requiredClaims: ["exp"],
       });
-      const { repository_owner, repository_owner_id, event_name } = payload;
+      const { repository, repository_owner, repository_owner_id, event_name, repository_visibility } = payload;
+      if (typeof repository !== "string") return null;
       if (typeof repository_owner !== "string") return null;
       if (typeof repository_owner_id !== "string") return null;
       if (typeof event_name !== "string") return null;
       return {
+        repository,
+        isPublicRepository: repository_visibility === "public",
         repositoryOwner: repository_owner,
         repositoryOwnerId: repository_owner_id,
         eventName: event_name,

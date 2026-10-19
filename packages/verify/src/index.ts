@@ -218,3 +218,55 @@ function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
     return { ok: false };
   }
 }
+
+export type WebhooksOptions = { toleranceSec?: number };
+
+export type WebhookDelivery = { id: string; timestamp: Date };
+
+/** One optional handler per event, keyed by the discriminator's value. */
+export type EventHandlers<Events> = {
+  [K in keyof Events]?: (payload: Events[K], delivery: WebhookDelivery) => unknown;
+};
+
+export interface Webhooks<Events> {
+  verify(request: Request): Promise<VerifyResult<Events[keyof Events]>>;
+  verifyPayload(
+    payload: string | Uint8Array,
+    headers: HeadersLike,
+  ): Promise<VerifyResult<Events[keyof Events]>>;
+  /**
+   * A fetch handler (Next, Hono, Remix, Workers, Bun). Answers 400 with the
+   * reason when verification fails, else runs the event's handler and answers
+   * 204. Events without a handler are acknowledged. A handler that throws
+   * rejects, so the framework answers 500 and the sender retries.
+   */
+  handler(handlers: EventHandlers<Events>): (request: Request) => Promise<Response>;
+}
+
+/**
+ * A verifier typed by an event map, as `typedhook add` generates them, that
+ * routes payloads by `discriminator` (the property naming the event).
+ */
+export function createWebhooks<Events>(
+  secret: string,
+  { discriminator, ...options }: WebhooksOptions & { discriminator: string },
+): Webhooks<Events> {
+  const verifier = createVerifier(secret, options);
+  return {
+    verify: (request) => verifier.verify(request),
+    verifyPayload: (payload, headers) => verifier.verifyPayload(payload, headers),
+    handler(handlers) {
+      // Same trust as verify<T>(): the signature proves who sent the payload, not its shape.
+      const byKey = handlers as Record<string, ((payload: unknown, delivery: WebhookDelivery) => unknown) | undefined>;
+      return async (request) => {
+        const result = await verifier.verify(request);
+        if (!result.ok) return new Response(result.reason, { status: 400 });
+        const { id, timestamp, payload } = result;
+        const key =
+          typeof payload === "object" && payload !== null ? Reflect.get(payload, discriminator) : undefined;
+        if (typeof key === "string" && Object.hasOwn(byKey, key)) await byKey[key]?.(payload, { id, timestamp });
+        return new Response(null, { status: 204 });
+      };
+    },
+  };
+}

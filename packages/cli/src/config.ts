@@ -1,18 +1,26 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { DEFAULT_REGISTRY_URL } from "@typedhook/verify/registry";
+import { DEFAULT_REGISTRY_URL, type Lang, findLang } from "@typedhook/verify/registry";
 import { isRecord } from "./is-record";
 
-const DEFAULT_OUT = "src/webhooks";
+const DEFAULT_OUT: Record<Lang, string> = { typescript: "src/webhooks", python: "webhooks", go: "webhooks" };
+
+const PUBLISH_KEYS = ["name", "owner", "events", "export", "openapi", "schemas", "examples", "title", "description"] as const;
 
 export type Env = Record<string, string | undefined>;
 
+/** How `typedhook publish` builds the document; exactly one of events, openapi, schemas, examples. */
+export type PublishConfig = Partial<Record<(typeof PUBLISH_KEYS)[number], string>>;
+
 export type WebhooksConfig = {
   registry?: string;
+  /** Language `pull` generates; TypeScript when unset. */
+  lang?: Lang;
   /** Directory the generated files go to, relative to typedhook.json. */
-  out: string;
+  out?: string;
   /** `owner/name` → semver range */
   registries: Record<string, string>;
+  publish?: PublishConfig;
 };
 
 export type LockEntry = { range: string; version: string; hash: string };
@@ -23,18 +31,33 @@ export type Project = { root: string; config: WebhooksConfig };
 
 /** The nearest typedhook.json from `cwd` up, with the directory it's in. */
 export async function findProject(cwd: string): Promise<Project | null> {
-  const root = await findUp(cwd, "typedhook.json");
+  const root = await findUp(cwd, ["typedhook.json"]);
   if (root === null) return null;
   return { root, config: await readConfig(root) };
 }
 
-/** Where `add` creates typedhook.json when there's none: the nearest package, else `cwd`. */
-export async function findPackageRoot(cwd: string): Promise<string> {
-  return (await findUp(cwd, "package.json")) ?? cwd;
+const PROJECT_MARKERS: Record<Lang, string[]> = {
+  typescript: ["package.json"],
+  python: ["pyproject.toml", "setup.py", "requirements.txt"],
+  go: ["go.mod"],
+};
+
+/** Where typedhook.json goes when there's none: the nearest project in that language, else `cwd`. */
+export async function findProjectRoot(cwd: string, lang: Lang): Promise<string> {
+  return (await findUp(cwd, PROJECT_MARKERS[lang])) ?? cwd;
 }
 
-export function defaultConfig(): WebhooksConfig {
-  return { out: DEFAULT_OUT, registries: {} };
+export function defaultConfig(lang: Lang = "typescript"): WebhooksConfig {
+  if (lang === "typescript") return { out: DEFAULT_OUT.typescript, registries: {} };
+  return { lang, out: DEFAULT_OUT[lang], registries: {} };
+}
+
+export function langOf(config: WebhooksConfig): Lang {
+  return config.lang ?? "typescript";
+}
+
+export function outOf(config: WebhooksConfig): string {
+  return config.out ?? DEFAULT_OUT[langOf(config)];
 }
 
 export async function readConfig(root: string): Promise<WebhooksConfig> {
@@ -44,21 +67,32 @@ export async function readConfig(root: string): Promise<WebhooksConfig> {
     `${path} should look like { "out": "src/webhooks", "registries": { "owner/name": "^1.0.0" } }`,
   );
   if (!isRecord(value)) throw invalid;
-  const { registry, out = DEFAULT_OUT, registries = {} } = value;
+  const { registry, lang, out, registries = {}, publish } = value;
   if (
-    (registry !== undefined && typeof registry !== "string") ||
-    typeof out !== "string" ||
-    !isStringRecord(registries)
+    !isOptionalString(registry) ||
+    !isOptionalString(lang) ||
+    !isOptionalString(out) ||
+    !isStringRecord(registries) ||
+    (publish !== undefined && !isPublishConfig(publish))
   ) {
     throw invalid;
   }
-  const config: WebhooksConfig = { out, registries };
-  if (typeof registry === "string") config.registry = registry;
+  const config: WebhooksConfig = { registries };
+  if (registry !== undefined) config.registry = registry;
+  if (lang !== undefined) {
+    const parsed = findLang(lang);
+    if (parsed === null) throw new Error(`${path}: unknown lang "${lang}", expected typescript, python or go`);
+    config.lang = parsed;
+  }
+  if (out !== undefined) config.out = out;
+  if (publish !== undefined) config.publish = publish;
   return config;
 }
 
-export async function writeConfig(root: string, config: WebhooksConfig): Promise<void> {
-  await writeJson(join(root, "typedhook.json"), config);
+/** A sender-only typedhook.json has no registries, so they're left out when empty. */
+export async function writeConfig(root: string, { registries, ...rest }: WebhooksConfig): Promise<void> {
+  const hasRegistries = Object.keys(registries).length > 0 || rest.out !== undefined;
+  await writeJson(join(root, "typedhook.json"), hasRegistries ? { ...rest, registries } : rest);
 }
 
 /** typedhook.lock next to typedhook.json; empty when there's none yet. */
@@ -124,10 +158,11 @@ function parseJson(path: string, text: string): unknown {
   }
 }
 
-async function findUp(cwd: string, file: string): Promise<string | null> {
+/** The nearest directory from `cwd` up holding any of `files`. */
+async function findUp(cwd: string, files: string[]): Promise<string | null> {
   let dir = cwd;
   while (true) {
-    if (await exists(join(dir, file))) return dir;
+    for (const file of files) if (await exists(join(dir, file))) return dir;
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -141,6 +176,16 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+function isPublishConfig(value: unknown): value is PublishConfig {
+  if (!isRecord(value)) return false;
+  const known = new Set<string>(PUBLISH_KEYS);
+  return Object.entries(value).every(([key, item]) => known.has(key) && typeof item === "string");
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

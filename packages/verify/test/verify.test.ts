@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createVerifier } from "../src/index";
+import { createVerifier, createWebhooks } from "../src/index";
 
 const encoder = new TextEncoder();
 
@@ -250,5 +250,72 @@ describe("createVerifier", () => {
       "webhook-signature": "v1,!!!not-base64!!! v2,abc ,",
     });
     expect(result).toEqual({ ok: false, reason: "invalid_signature" });
+  });
+});
+
+type Events = {
+  "invoice.paid": { type: "invoice.paid"; data: { invoiceId: string } };
+  "invoice.voided": { type: "invoice.voided"; data: { reason: string } };
+};
+
+describe("createWebhooks", () => {
+  async function request(body = PAYLOAD) {
+    return new Request("https://consumer.test/hook", { method: "POST", headers: await signedHeaders(), body });
+  }
+
+  test("routes a verified payload to its event's handler and answers 204", async () => {
+    const seen: unknown[] = [];
+    const handle = createWebhooks<Events>(SECRET, { discriminator: "type" }).handler({
+      "invoice.paid": (payload, delivery) => {
+        seen.push(payload.data.invoiceId, delivery.id);
+      },
+      "invoice.voided": () => {
+        throw new Error("wrong handler");
+      },
+    });
+    const response = await handle(await request());
+    expect(response.status).toBe(204);
+    expect(seen).toEqual(["inv_1", "evt_123"]);
+  });
+
+  test("acknowledges events without a handler, and doesn't look them up on the prototype", async () => {
+    const webhooks = createWebhooks<Events>(SECRET, { discriminator: "type" });
+    expect((await webhooks.handler({})(await request())).status).toBe(204);
+    const body = JSON.stringify({ type: "constructor" });
+    const headers = await signedHeaders({
+      "webhook-signature": await sign(SECRET, "evt_123", Math.floor(Date.now() / 1000), body),
+    });
+    const response = await webhooks.handler({})(new Request("https://consumer.test/hook", { method: "POST", headers, body }));
+    expect(response.status).toBe(204);
+  });
+
+  test("answers 400 with the reason when verification fails", async () => {
+    const handle = createWebhooks<Events>(SECRET, { discriminator: "type" }).handler({
+      "invoice.paid": () => {
+        throw new Error("must not run");
+      },
+    });
+    const tampered = new Request("https://consumer.test/hook", {
+      method: "POST",
+      headers: await signedHeaders(),
+      body: PAYLOAD.replace("inv_1", "inv_2"),
+    });
+    const response = await handle(tampered);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("invalid_signature");
+  });
+
+  test("a throwing handler rejects so the sender retries", async () => {
+    const handle = createWebhooks<Events>(SECRET, { discriminator: "type" }).handler({
+      "invoice.paid": () => {
+        throw new Error("database down");
+      },
+    });
+    await expect(handle(await request())).rejects.toThrow("database down");
+  });
+
+  test("verify is typed by the event map", async () => {
+    const result = await createWebhooks<Events>(SECRET, { discriminator: "type" }).verify(await request());
+    expect(result.ok && result.payload.type === "invoice.paid" && result.payload.data.invoiceId).toBe("inv_1");
   });
 });

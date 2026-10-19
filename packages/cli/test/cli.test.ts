@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GENERATOR_VERSION, canonicalJson, generateTypes, hashDocument } from "@typedhook/verify/registry";
+import { GENERATOR_VERSION, canonicalJson, generateCode, hashDocument } from "@typedhook/verify/registry";
 import { createApp } from "../../registry/src/app";
 import { githubVerifier } from "../../registry/src/github-oidc";
 import { d1Store } from "../../registry/src/store";
@@ -11,12 +11,13 @@ import { AUDIENCE, keySet, signGithubToken } from "../../registry/test/github-to
 import { billingDocument } from "../../verify/test/fixtures/billing";
 import { add } from "../src/commands/add";
 import { pull } from "../src/commands/pull";
-import { push } from "../src/commands/push";
+import { publish } from "../src/commands/publish";
 import { readLock, writeLock } from "../src/config";
 
 const app = createApp({
   store: d1Store(memoryD1()),
   verifyGithubToken: githubVerifier({ audience: AUDIENCE, keySet }),
+  githubDevice: null,
 });
 const token = await signGithubToken();
 const fixtures = join(import.meta.dir, "../../verify/test/fixtures");
@@ -41,21 +42,27 @@ async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await read(path));
 }
 
-function pushBilling(version: string, log = (_line: string) => {}) {
-  return push({
-    events: "billing.ts",
-    exportName: "billingEvents",
-    name: "billing",
-    title: "Billing",
+let sender: string;
+
+/** Publishes the billing fixture from a sender project whose typedhook.json the first publish writes. */
+function publishBilling(version?: string, log = (_line: string) => {}) {
+  return publish({
+    settings: {
+      events: join(fixtures, "billing.ts"),
+      export: "billingEvents",
+      name: "billing",
+      title: "Billing",
+      owner: "acme",
+    },
     version,
-    owner: "acme",
-    cwd: fixtures,
+    cwd: sender,
     env: env(),
     log,
   });
 }
 
 beforeAll(async () => {
+  sender = await mkdtemp(join(tmpdir(), "webhooks-sender-"));
   project = await mkdtemp(join(tmpdir(), "webhooks-cli-"));
   await writeFile(join(project, "package.json"), '{\n  "name": "app",\n  "scripts": { "build": "tsc" }\n}\n');
 });
@@ -63,13 +70,34 @@ beforeAll(async () => {
 afterAll(async () => {
   server.stop(true);
   await rm(project, { recursive: true, force: true });
+  await rm(sender, { recursive: true, force: true });
 });
 
 describe("webhooks CLI against the registry", () => {
-  test("push uploads the events as an OpenAPI document", async () => {
+  test("publish uploads the events as an OpenAPI document and saves its settings", async () => {
     const lines: string[] = [];
-    await pushBilling("1.0.0", (line) => lines.push(line));
-    expect(lines).toEqual([expect.stringMatching(/^created acme\/billing@1\.0\.0 \(sha256-/)]);
+    await publishBilling(undefined, (line) => lines.push(line));
+    expect(lines).toEqual([
+      expect.stringMatching(/^acme\/billing 1\.0\.0, first version, 6 events from .*billing\.ts$/),
+      `created acme/billing@1.0.0: ${server.url.href.replace(/\/$/, "")}/acme/billing`,
+      "consumers run: npx typedhook add acme/billing",
+      "saved these settings to typedhook.json, so next time it's just `typedhook publish`",
+    ]);
+    expect(JSON.parse(await readFile(join(sender, "typedhook.json"), "utf8"))).toEqual({
+      publish: {
+        events: join(fixtures, "billing.ts"),
+        export: "billingEvents",
+        name: "billing",
+        title: "Billing",
+        owner: "acme",
+      },
+    });
+  });
+
+  test("publishing again without changes publishes nothing", async () => {
+    const lines: string[] = [];
+    await publish({ cwd: sender, env: env(), log: (line) => lines.push(line) });
+    expect(lines).toEqual(["nothing changed since acme/billing@1.0.0, so nothing to publish"]);
   });
 
   test("add writes the config, lock, generated file and postinstall", async () => {
@@ -93,7 +121,7 @@ describe("webhooks CLI against the registry", () => {
     const document = JSON.parse(JSON.stringify(billingDocument));
     const hash = await hashDocument(document);
     expect(await read("src/webhooks/billing.ts")).toBe(
-      await generateTypes({ registry: "acme/billing", version: "1.0.0", hash, document }),
+      await generateCode("typescript", { registry: "acme/billing", version: "1.0.0", hash, document }),
     );
     expect(await readJson("package.json")).toEqual({
       name: "app",
@@ -148,7 +176,7 @@ describe("webhooks CLI against the registry", () => {
   });
 
   test("pull --update moves the lock to the newest matching version", async () => {
-    await pushBilling("1.1.0");
+    await publishBilling("1.1.0");
     await pull({ update: true, cwd: project, env: env(), log });
     expect(await readJson("typedhook.lock")).toEqual({
       "acme/billing": { range: "^1.0.0", version: "1.1.0", hash: expect.stringMatching(/^sha256-/) },
@@ -185,42 +213,33 @@ describe("webhooks CLI against the registry", () => {
     );
   });
 
-  test("push rejects a version the registry won't store", async () => {
-    await expect(pushBilling("1.2.0\nexport const pwned = 1;")).rejects.toThrow(
+  test("publish rejects a version the registry won't store", async () => {
+    await expect(publishBilling("1.2.0\nexport const pwned = 1;")).rejects.toThrow(
       '--version must be strict semver like 1.4.0 or 2.0.0-beta.1, got "1.2.0\\nexport const pwned = 1;"',
     );
   });
 
-  test("push says which runtimes load TypeScript when the import fails", async () => {
-    const pushing = push({
-      events: "missing.ts",
-      name: "billing",
-      version: "1.0.0",
-      out: "x.json",
-      cwd: fixtures,
-      env: {},
-      log,
-    });
-    await expect(pushing).rejects.toThrow(
-      /^can't import .*missing\.ts: .*TypeScript event files need Bun or Node 22\.18\+/,
-    );
+  test("publish says what failed when the events module can't be imported", async () => {
+    const publishing = publish({ settings: { events: "missing.ts", name: "billing", owner: "acme" }, cwd: sender, env: env(), log });
+    await expect(publishing).rejects.toThrow(/^can't import .*missing\.ts: /);
   });
 
-  test("push --out writes the document without uploading", async () => {
-    await push({
-      events: "billing.ts",
-      exportName: "billingEvents",
-      name: "billing",
+  test("publish --dry-run --out writes the document without uploading", async () => {
+    await publish({
+      settings: { events: join(fixtures, "billing.ts"), export: "billingEvents", name: "billing-preview", owner: "acme" },
       version: "2.0.0",
+      isDryRun: true,
       out: join(project, "openapi.json"),
-      cwd: fixtures,
-      env: {},
+      cwd: sender,
+      env: env(),
       log,
     });
     expect(await readJson("openapi.json")).toMatchObject({
       openapi: "3.1.0",
-      info: { title: "billing", version: "2.0.0" },
+      // The sender's typedhook.json still sets the title; flags only override what they name.
+      info: { title: "Billing", version: "2.0.0" },
     });
+    await expect(add(["acme/billing-preview"], { cwd: project, env: env(), log })).rejects.toThrow("not found");
   });
 });
 

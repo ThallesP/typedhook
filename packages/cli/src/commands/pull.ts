@@ -5,6 +5,7 @@ import {
   type LockEntry,
   type Lockfile,
   findProject,
+  langOf,
   readLock,
   registryUrl,
   writeLock,
@@ -76,7 +77,7 @@ export async function pull({
         `${registry}@${locked.version} hashes to ${resolved.hash}, but typedhook.lock has ${locked.hash}`,
       );
     }
-    await writeGeneratedFile(join(root, path), registry, resolved);
+    await writeGeneratedFile(langOf(config), join(root, path), registry, resolved);
     nextLock[registry] = { range, version: resolved.version, hash: resolved.hash };
     log(`${registry}@${resolved.version} → ${path}`);
     pulled++;

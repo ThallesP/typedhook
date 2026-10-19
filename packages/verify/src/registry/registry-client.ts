@@ -24,7 +24,7 @@ export type PushDocumentOptions = {
   registry: string;
   version: string;
   document: unknown;
-  /** GitHub Actions OIDC token. */
+  /** GitHub Actions OIDC token or a `typedhook login` token. */
   token: string;
   fetchImpl?: FetchImpl;
 };
@@ -112,10 +112,20 @@ function registryBaseUrl(registryUrl: string, registry: string): string {
   return `${registryUrl.replace(/\/+$/, "")}/registries/${owner}/${name}`;
 }
 
+/** A non-2XX answer from the registry, so callers can tell a missing registry from a failure. */
+export class RegistryError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 async function requestJson(fetchImpl: FetchImpl, url: string, init: RequestInit): Promise<unknown> {
   const response = await fetchImpl(url, init);
   const body: unknown = await response.json().catch(() => undefined);
   if (response.ok) return body;
   const reason = isRecord(body) && typeof body.error === "string" ? body.error : response.statusText;
-  throw new Error(`registry responded ${response.status}: ${reason}`);
+  throw new RegistryError(response.status, `registry responded ${response.status}: ${reason}`);
 }

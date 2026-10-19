@@ -1,39 +1,74 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { parseLang } from "@typedhook/verify/registry";
 import { add } from "./commands/add";
+import { info } from "./commands/info";
+import { login } from "./commands/login";
+import { logout } from "./commands/logout";
+import { publish } from "./commands/publish";
 import { pull } from "./commands/pull";
-import { push } from "./commands/push";
+import { sdk } from "./commands/sdk";
+import { search } from "./commands/search";
+import { whoami } from "./commands/whoami";
 
 const USAGE = `Usage: typedhook <command> [options]
 
-Commands:
-  add <owner/name[@range]>...  Add registries to typedhook.json and generate their types
-    --registry <url>           Registry URL to save in typedhook.json
+Publish the webhooks your product sends:
+  login                        Sign in with GitHub (prints a code to enter on github.com)
+  publish                      Publish your events; the version is picked from what changed
+    --events <file>            A module exporting zod, valibot or arktype schemas
+      --export <name>          The export holding them (default: events)
+    --openapi <file>           An OpenAPI 3.1 document (JSON or YAML) with webhooks
+    --schemas <dir>            One JSON Schema per event: <dir>/invoice.paid.json
+    --examples <dir>           Example payloads per event; the schema is inferred
+    --name <name>              Registry name (default: package.json name or the directory)
+    --owner <owner>            GitHub user or org to publish as (default: you)
+    --version <semver>         Publish this version instead of the computed one
+    --title <text>             Title (default: the name)
+    --description <text>       Description
+    --dry-run                  Show what would be published, upload nothing
+    --out <file>               Also write the document to a file
+  whoami                       Who you're signed in as and who you can publish as
+  logout                       Sign out and revoke the token
 
-  pull                         Generate the types for every registry in typedhook.json
-    --update                   Move each registry to the newest version its range allows
+Use other products' webhooks:
+  search [query]               Find products that publish their webhooks
+  info <owner/name[@range]>    A product's events and versions
+  add <owner/name[@range]>...  Add products to typedhook.json and generate their code
+    --lang <lang>              typescript (default), python or go
+    --registry <url>           Registry URL to save in typedhook.json
+  pull                         Generate the code for every product in typedhook.json
+    --update                   Move each one to the newest version its range allows
     --check                    Write nothing; fail when generated files are missing or stale
 
-  push                         Build an OpenAPI document from your events and upload it
-    --events <file>            Module exporting the event map (required); a .ts file
-                               needs Bun or Node 22.18+
-    --name <name>              Registry name (required)
-    --version <semver>         Version to publish (required)
-    --export <name>            Export holding the event map (default: events)
-    --title <text>             OpenAPI info.title (default: the name)
-    --description <text>       OpenAPI info.description
-    --owner <owner>            Registry owner (default: $GITHUB_REPOSITORY_OWNER)
-    --out <file>               Write the document to a file instead of uploading it
+Ship your own SDK:
+  sdk <owner/name[@range]>     Write a package to publish under your name (npm, PyPI, Go)
+    --lang <lang>              typescript, python or go (required)
+    --out <dir>                Where to write it (required)
+    --package <name>           npm/PyPI name or Go module path (default: @owner/name-webhooks,
+                               owner-name-webhooks, github.com/owner/name-webhooks-go)
+
+Flags given to publish are saved in typedhook.json, so later it's just \`typedhook publish\`.
 
 Environment:
-  TYPEDHOOK_REGISTRY_URL        Registry URL, over the one in typedhook.json
-  TYPEDHOOK_OIDC_TOKEN          Token for push; in GitHub Actions one is requested
-                               (needs \`permissions: id-token: write\`)`;
+  TYPEDHOOK_REGISTRY_URL       Registry URL, over the one in typedhook.json
+  TYPEDHOOK_TOKEN              A token from \`typedhook login\` (~/.config/typedhook), for publish
+                               outside GitHub Actions; valid 90 days, for organizations 7 days
+                               after that person's latest login, revoked by a new login on the
+                               machine that saved it
+  TYPEDHOOK_OIDC_TOKEN         GitHub OIDC token for publish; in GitHub Actions one is
+                               requested (needs \`permissions: id-token: write\`)`;
 
 const commands = new Map([
+  ["login", runLogin],
+  ["logout", runLogout],
+  ["whoami", runWhoami],
+  ["publish", runPublish],
+  ["search", runSearch],
+  ["info", runInfo],
   ["add", runAdd],
   ["pull", runPull],
-  ["push", runPush],
+  ["sdk", runSdk],
 ]);
 
 async function main(argv: string[]): Promise<void> {
@@ -47,13 +82,63 @@ async function main(argv: string[]): Promise<void> {
   await run(args);
 }
 
+async function runLogin(args: string[]): Promise<void> {
+  parseArgs({ args });
+  await login();
+}
+
+async function runLogout(args: string[]): Promise<void> {
+  parseArgs({ args });
+  await logout();
+}
+
+async function runWhoami(args: string[]): Promise<void> {
+  parseArgs({ args });
+  await whoami();
+}
+
+async function runPublish(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      events: { type: "string" },
+      export: { type: "string" },
+      openapi: { type: "string" },
+      schemas: { type: "string" },
+      examples: { type: "string" },
+      name: { type: "string" },
+      owner: { type: "string" },
+      version: { type: "string" },
+      title: { type: "string" },
+      description: { type: "string" },
+      "dry-run": { type: "boolean" },
+      out: { type: "string" },
+    },
+  });
+  const { version, "dry-run": isDryRun, out, ...settings } = values;
+  await publish({ settings: definedOnly(settings), version, isDryRun, out });
+}
+
+async function runSearch(args: string[]): Promise<void> {
+  const { positionals } = parseArgs({ args, allowPositionals: true });
+  await search(positionals.join(" "));
+}
+
+async function runInfo(args: string[]): Promise<void> {
+  const { positionals } = parseArgs({ args, allowPositionals: true });
+  const [spec] = positionals;
+  if (spec === undefined || positionals.length > 1) throw new Error("usage: typedhook info owner/name[@range]");
+  await info(spec);
+}
+
 async function runAdd(args: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { registry: { type: "string" } },
+    options: { registry: { type: "string" }, lang: { type: "string" } },
   });
-  await add(positionals, { registryUrl: values.registry });
+  const lang = values.lang === undefined ? undefined : parseLang(values.lang);
+  await add(positionals, { registryUrl: values.registry, lang });
 }
 
 async function runPull(args: string[]): Promise<void> {
@@ -64,23 +149,24 @@ async function runPull(args: string[]): Promise<void> {
   await pull(values);
 }
 
-async function runPush(args: string[]): Promise<void> {
-  const { values } = parseArgs({
+async function runSdk(args: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
     args,
-    options: {
-      events: { type: "string" },
-      name: { type: "string" },
-      version: { type: "string" },
-      export: { type: "string" },
-      title: { type: "string" },
-      description: { type: "string" },
-      owner: { type: "string" },
-      out: { type: "string" },
-    },
+    allowPositionals: true,
+    options: { lang: { type: "string" }, out: { type: "string" }, package: { type: "string" } },
   });
-  const { events, name, version, export: exportName, ...rest } = values;
-  if (!events || !name || !version) throw new Error("push needs --events, --name and --version");
-  await push({ events, name, version, exportName, ...rest });
+  const [spec] = positionals;
+  if (spec === undefined || positionals.length > 1 || !values.lang || !values.out) {
+    throw new Error("usage: typedhook sdk owner/name[@range] --lang <lang> --out <dir>");
+  }
+  await sdk(spec, { lang: parseLang(values.lang), out: values.out, packageName: values.package });
+}
+
+/** parseArgs leaves unset flags as undefined keys, which would overwrite saved settings. */
+function definedOnly(values: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
+  );
 }
 
 try {
@@ -89,3 +175,6 @@ try {
   console.error(`typedhook: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 }
+// An events module that opened a connection when imported would keep the process
+// alive. Unref'd, so a normal run still exits on its own with stdout flushed.
+setTimeout(() => process.exit(), 1_000).unref();
