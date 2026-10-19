@@ -160,12 +160,15 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
       change("major", path, "is no longer typed");
       return;
     }
+    const oldTags = variantTags(old, oldMembers);
+    const newTags = variantTags(next, newMembers);
+    const isTaggedUnion = [...oldTags.values()].some((tags) => tags.length > 0);
     const matched = new Set<Shape>();
     for (const shape of newMembers) {
-      const counterpart = counterpartOf(shape, oldMembers, matched);
+      const counterpart = counterpartOf(shape, oldMembers, matched, newTags.get(shape) ?? [], isTaggedUnion, oldTags);
       if (counterpart === undefined) {
-        const [tag] = shape.kind === "object" ? objectTags(next, shape) : [];
-        if (tag !== undefined && isTaggedUnion(oldMembers)) change("minor", path, `has a new variant ${tag}`);
+        const [tag] = newTags.get(shape) ?? [];
+        if (tag !== undefined && isTaggedUnion) change("minor", path, `has a new variant ${tag}`);
         else change(...widened(shape, oldMembers, path));
         continue;
       }
@@ -176,31 +179,31 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
     }
     for (const shape of oldMembers) {
       if (matched.has(shape)) continue;
-      const [tag] = shape.kind === "object" ? objectTags(old, shape) : [];
+      const [tag] = oldTags.get(shape) ?? [];
       change("minor", path, tag === undefined ? `can no longer be ${describe(shape)}` : `no longer has the variant ${tag}`);
     }
   }
 
-  function isTaggedUnion(oldMembers: Shape[]): boolean {
-    return oldMembers.some((member) => member.kind === "object" && objectTags(old, member).length > 0);
-  }
-
   /**
    * The old member a new one is compared with, or undefined when it's new.
-   * Objects in a tagged union pair up only by a property pinned to the same
-   * value (their own discriminator); untagged objects pair by position among
-   * the ones not paired yet. Other kinds prefer an unpaired member, but can
-   * share one, so `integer | number` against `number` is still no change.
+   * Objects in a tagged union pair up only by a tag they share; untagged
+   * objects pair by position among the ones not paired yet. Other kinds
+   * prefer an unpaired member, but can share one, so `integer | number`
+   * against `number` is still no change.
    */
-  function counterpartOf(shape: Shape, oldMembers: Shape[], matched: Set<Shape>): Shape | undefined {
+  function counterpartOf(
+    shape: Shape,
+    oldMembers: Shape[],
+    matched: Set<Shape>,
+    tags: string[],
+    isTaggedUnion: boolean,
+    oldTags: Map<Shape, string[]>,
+  ): Shape | undefined {
     const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
     const unmatched = candidates.filter((candidate) => !matched.has(candidate));
     if (shape.kind !== "object") return unmatched[0] ?? candidates[0];
-    const tags = objectTags(next, shape);
-    if (tags.length > 0 && isTaggedUnion(oldMembers)) {
-      return unmatched.find(
-        (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag)),
-      );
+    if (tags.length > 0 && isTaggedUnion) {
+      return unmatched.find((candidate) => (oldTags.get(candidate) ?? []).some((tag) => tags.includes(tag)));
     }
     return unmatched[0];
   }
@@ -342,7 +345,20 @@ function objectShape(schema: Record<string, unknown>): ObjectShape {
   };
 }
 
-/** `property=value` for each property pinned to one literal, which tells union members apart. */
+/**
+ * Each object member's tags that no other member carries: a property pinned
+ * to a value every variant shares (`object: "line_item"`) tells none apart.
+ * A lone object keeps all its tags.
+ */
+function variantTags(side: Side, members: Shape[]): Map<Shape, string[]> {
+  const tagsByMember = new Map<Shape, string[]>();
+  for (const member of members) if (member.kind === "object") tagsByMember.set(member, objectTags(side, member));
+  const counts = new Map<string, number>();
+  for (const tags of tagsByMember.values()) for (const tag of tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  return new Map([...tagsByMember].map(([member, tags]) => [member, tags.filter((tag) => counts.get(tag) === 1)]));
+}
+
+/** `property=value` for each property pinned to one literal. */
 function objectTags(side: Side, shape: ObjectShape): string[] {
   return [...shape.properties].flatMap(([key, property]) => {
     const [only, ...others] = shapes(side, property.schema);

@@ -33820,12 +33820,15 @@ function comparer(old, next, event, changes) {
       change("major", path, "is no longer typed");
       return;
     }
+    const oldTags = variantTags(old, oldMembers);
+    const newTags = variantTags(next, newMembers);
+    const isTaggedUnion = [...oldTags.values()].some((tags) => tags.length > 0);
     const matched = /* @__PURE__ */ new Set();
     for (const shape of newMembers) {
-      const counterpart = counterpartOf(shape, oldMembers, matched);
+      const counterpart = counterpartOf(shape, oldMembers, matched, newTags.get(shape) ?? [], isTaggedUnion, oldTags);
       if (counterpart === void 0) {
-        const [tag] = shape.kind === "object" ? objectTags(next, shape) : [];
-        if (tag !== void 0 && isTaggedUnion(oldMembers)) change("minor", path, `has a new variant ${tag}`);
+        const [tag] = newTags.get(shape) ?? [];
+        if (tag !== void 0 && isTaggedUnion) change("minor", path, `has a new variant ${tag}`);
         else change(...widened(shape, oldMembers, path));
         continue;
       }
@@ -33836,22 +33839,16 @@ function comparer(old, next, event, changes) {
     }
     for (const shape of oldMembers) {
       if (matched.has(shape)) continue;
-      const [tag] = shape.kind === "object" ? objectTags(old, shape) : [];
+      const [tag] = oldTags.get(shape) ?? [];
       change("minor", path, tag === void 0 ? `can no longer be ${describe(shape)}` : `no longer has the variant ${tag}`);
     }
   }
-  function isTaggedUnion(oldMembers) {
-    return oldMembers.some((member) => member.kind === "object" && objectTags(old, member).length > 0);
-  }
-  function counterpartOf(shape, oldMembers, matched) {
+  function counterpartOf(shape, oldMembers, matched, tags, isTaggedUnion, oldTags) {
     const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
     const unmatched = candidates.filter((candidate) => !matched.has(candidate));
     if (shape.kind !== "object") return unmatched[0] ?? candidates[0];
-    const tags = objectTags(next, shape);
-    if (tags.length > 0 && isTaggedUnion(oldMembers)) {
-      return unmatched.find(
-        (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag))
-      );
+    if (tags.length > 0 && isTaggedUnion) {
+      return unmatched.find((candidate) => (oldTags.get(candidate) ?? []).some((tag) => tags.includes(tag)));
     }
     return unmatched[0];
   }
@@ -33967,6 +33964,13 @@ function objectShape(schema) {
     ),
     extra: isOpen ? true : extra
   };
+}
+function variantTags(side, members) {
+  const tagsByMember = /* @__PURE__ */ new Map();
+  for (const member of members) if (member.kind === "object") tagsByMember.set(member, objectTags(side, member));
+  const counts = /* @__PURE__ */ new Map();
+  for (const tags of tagsByMember.values()) for (const tag of tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  return new Map([...tagsByMember].map(([member, tags]) => [member, tags.filter((tag) => counts.get(tag) === 1)]));
 }
 function objectTags(side, shape) {
   return [...shape.properties].flatMap(([key, property]) => {

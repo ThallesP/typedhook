@@ -327,3 +327,24 @@ describe("diffDocuments and tuple bounds", () => {
     ]);
   });
 });
+
+describe("diffDocuments and a value every variant shares", () => {
+  const product = z.object({ object: z.literal("line_item"), kind: z.literal("product"), sku: z.string() });
+  const discount = z.object({ object: z.literal("line_item"), kind: z.literal("discount"), code: z.string() });
+  const shipping = z.object({ object: z.literal("line_item"), kind: z.literal("shipping"), carrier: z.string() });
+  const item = (...variants: [z.ZodObject, z.ZodObject, ...z.ZodObject[]]) =>
+    document({ a: z.object({ item: z.union(variants) }) });
+
+  test("reordering changes no types", () => {
+    expect(diffDocuments(item(product, discount), item(discount, product)).bump).toBe("patch");
+  });
+
+  test("adding or removing a variant is minor and names the tag that tells it apart", () => {
+    expect(diffDocuments(item(product, discount), item(shipping, product, discount)).changes).toEqual([
+      { bump: "minor", event: "a", path: "data.item", message: 'has a new variant kind="shipping"' },
+    ]);
+    expect(diffDocuments(item(product, discount, shipping), item(product, shipping)).changes).toEqual([
+      { bump: "minor", event: "a", path: "data.item", message: 'no longer has the variant kind="discount"' },
+    ]);
+  });
+});
