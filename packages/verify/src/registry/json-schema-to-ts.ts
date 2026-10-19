@@ -74,7 +74,9 @@ function objectType(schema: Record<string, unknown>, depth: number, refName: Ref
   const pad = "  ".repeat(depth + 1);
   const lines = keys.map((key) => {
     const optional = required.includes(key) ? "" : "?";
-    return `${pad}${propertyKey(key)}${optional}: ${convert(properties[key], depth + 1, refName).text};`;
+    const line = `${pad}${propertyKey(key)}${optional}: ${convert(properties[key], depth + 1, refName).text};`;
+    const description = getDescription(properties[key]);
+    return description === null ? line : `${jsDoc(description, pad)}\n${line}`;
   });
   // A typed index signature would have to accept every named property's type
   // too, so with named properties present the extra keys are `unknown`.
@@ -115,6 +117,19 @@ function arrayType(schema: Record<string, unknown>, depth: number, refName: RefN
 
 function arrayOf(item: TsType): string {
   return item.kind === "single" ? `${item.text}[]` : `(${item.text})[]`;
+}
+
+export function getDescription(schema: unknown): string | null {
+  if (!isRecord(schema) || typeof schema.description !== "string") return null;
+  const description = schema.description.trim();
+  return description === "" ? null : description;
+}
+
+/** A doc comment at `pad`; a `*\/` in the text would end it early. */
+export function jsDoc(text: string, pad: string): string {
+  const lines = text.replaceAll("*/", "*\\/").split(/\r?\n/);
+  if (lines.length === 1) return `${pad}/** ${lines[0]} */`;
+  return [`${pad}/**`, ...lines.map((line) => `${pad} *${line ? ` ${line}` : ""}`), `${pad} */`].join("\n");
 }
 
 function propertyKey(key: string): string {
