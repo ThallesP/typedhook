@@ -13,6 +13,8 @@ export function inferSchema(samples: unknown[]): Record<string, unknown> {
 }
 
 function infer(values: unknown[]): Record<string, unknown> {
+  // Only empty arrays seen: nothing says what their items are.
+  if (values.length === 0) return {};
   const groups = new Map<string, unknown[]>();
   for (const value of values) {
     const kind = kindOf(value);

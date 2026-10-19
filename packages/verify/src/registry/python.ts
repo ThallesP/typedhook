@@ -269,28 +269,27 @@ function fieldType(field: Field, text: string): string {
 }
 
 /**
- * Like the TypeScript generator, a bare prefixItems is a fixed tuple and
- * explicit minItems, maxItems and items loosen it. Python tuples have no
- * optional or rest elements, so those become a list of the element types.
+ * json.loads gives lists, never tuples, so a JSON tuple is a list of its
+ * element types: a Tuple annotation would let consumers hash or compare it
+ * as a tuple and fail at runtime.
  */
 function arrayType(schema: Record<string, unknown>, scope: Scope, emitter: Emitter): PyType {
-  const { prefixItems, items, minItems, maxItems } = schema;
+  const { prefixItems, items, maxItems } = schema;
   const itemScope = { hint: `${scope.hint}Item` };
   if (!Array.isArray(prefixItems)) {
     const item = items === undefined ? ANY : render(convert(items, itemScope, emitter));
     return [{ kind: "type", rendered: generic("List", [item]) }];
   }
 
-  const required = typeof minItems === "number" ? minItems : prefixItems.length;
   const max = typeof maxItems === "number" ? maxItems : Number.POSITIVE_INFINITY;
-  const members = prefixItems.slice(0, Math.max(0, max)).map((item) => convert(item, itemScope, emitter));
+  // A list of the element types needs each distinct one once; converting a
+  // shared member at every level would double the work per level.
+  const distinct = [...new Set(prefixItems.slice(0, Math.max(0, max)))];
+  const members = distinct.map((item) => convert(item, itemScope, emitter));
   const isClosed = items === undefined || items === false || max <= prefixItems.length;
-  if (isClosed && members.length === 0) return [{ kind: "type", rendered: rendered("Tuple[()]", ["Tuple"]) }];
-  if (isClosed && members.length <= required) {
-    return [{ kind: "type", rendered: generic("Tuple", members.map(render)) }];
-  }
   const rest = isClosed ? [] : convert(items, itemScope, emitter);
-  return [{ kind: "type", rendered: generic("List", [render([...members.flat(), ...rest])]) }];
+  const elements = [...members.flat(), ...rest];
+  return [{ kind: "type", rendered: generic("List", [elements.length === 0 ? ANY : render(elements)]) }];
 }
 
 /**

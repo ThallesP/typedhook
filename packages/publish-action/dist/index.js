@@ -33310,22 +33310,19 @@ function fieldType2(field, text) {
   return field.isRequired ? text : `NotRequired[${text}]`;
 }
 function arrayType3(schema, scope, emitter) {
-  const { prefixItems, items, minItems, maxItems } = schema;
+  const { prefixItems, items, maxItems } = schema;
   const itemScope = { hint: `${scope.hint}Item` };
   if (!Array.isArray(prefixItems)) {
     const item = items === void 0 ? ANY2 : render(convert3(items, itemScope, emitter));
     return [{ kind: "type", rendered: generic("List", [item]) }];
   }
-  const required = typeof minItems === "number" ? minItems : prefixItems.length;
   const max = typeof maxItems === "number" ? maxItems : Number.POSITIVE_INFINITY;
-  const members = prefixItems.slice(0, Math.max(0, max)).map((item) => convert3(item, itemScope, emitter));
+  const distinct = [...new Set(prefixItems.slice(0, Math.max(0, max)))];
+  const members = distinct.map((item) => convert3(item, itemScope, emitter));
   const isClosed = items === void 0 || items === false || max <= prefixItems.length;
-  if (isClosed && members.length === 0) return [{ kind: "type", rendered: rendered("Tuple[()]", ["Tuple"]) }];
-  if (isClosed && members.length <= required) {
-    return [{ kind: "type", rendered: generic("Tuple", members.map(render)) }];
-  }
   const rest = isClosed ? [] : convert3(items, itemScope, emitter);
-  return [{ kind: "type", rendered: generic("List", [render([...members.flat(), ...rest])]) }];
+  const elements = [...members.flat(), ...rest];
+  return [{ kind: "type", rendered: generic("List", [elements.length === 0 ? ANY2 : render(elements)]) }];
 }
 function allOfType2(schema, scope, emitter) {
   const { allOf, ...own } = schema;
@@ -33764,8 +33761,11 @@ function diffDocuments(before, after) {
     const compare = comparer(old, next, event.name, changes);
     compare(previous.payload, event.payload, "");
   }
-  if (changes.length === 0 && canonicalJson(withoutInfo(before)) !== canonicalJson(withoutInfo(after))) {
-    changes.push({ bump: "patch", event: "", path: "", message: "descriptions or examples changed" });
+  for (const key of Object.keys(old.schemas)) {
+    if (!Object.hasOwn(next.schemas, key)) changes.push({ bump: "major", event: "", path: key, message: "type was removed" });
+  }
+  if (changes.length === 0 && canonicalJson(withoutVersion(before)) !== canonicalJson(withoutVersion(after))) {
+    changes.push({ bump: "patch", event: "", path: "", message: "title, descriptions or examples changed" });
   }
   return { bump: highestBump(changes), changes };
 }
@@ -33797,10 +33797,10 @@ function highestBump(changes) {
   for (const { bump } of changes) if (highest === null || BUMP_RANK[bump] > BUMP_RANK[highest]) highest = bump;
   return highest;
 }
-function withoutInfo(document) {
-  if (!isRecord(document)) return document;
-  const { info, ...rest } = document;
-  return rest;
+function withoutVersion(document) {
+  if (!isRecord(document) || !isRecord(document.info)) return document;
+  const { version, ...info } = document.info;
+  return { ...document, info };
 }
 function comparer(old, next, event, changes) {
   const comparing = /* @__PURE__ */ new Set();
@@ -33822,7 +33822,7 @@ function comparer(old, next, event, changes) {
     }
     const matched = /* @__PURE__ */ new Set();
     for (const shape of newMembers) {
-      const counterpart = oldMembers.find((candidate) => accepts(candidate, shape));
+      const counterpart = counterpartOf(shape, oldMembers, matched);
       if (counterpart === void 0) {
         change(...widened(shape, oldMembers, path));
         continue;
@@ -33830,28 +33830,53 @@ function comparer(old, next, event, changes) {
       matched.add(counterpart);
       if (counterpart.kind === "object" && shape.kind === "object") compareObjects(counterpart, shape, path);
       if (counterpart.kind === "array" && shape.kind === "array") compare(counterpart.items, shape.items, `${path}[]`);
+      if (counterpart.kind === "tuple" && shape.kind === "tuple") compareTuples(counterpart, shape, path);
     }
     for (const shape of oldMembers) {
       if (!matched.has(shape)) change("minor", path, `can no longer be ${describe(shape)}`);
     }
   }
+  function counterpartOf(shape, oldMembers, matched) {
+    const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
+    if (shape.kind !== "object") return candidates[0];
+    const tags = objectTags(next, shape);
+    const unmatched = candidates.filter((candidate) => !matched.has(candidate));
+    const tagged = unmatched.find(
+      (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag))
+    );
+    return tagged ?? unmatched[0] ?? candidates[0];
+  }
   function compareObjects(before, after, path) {
     for (const [key, property] of before.properties) {
-      const at = path === "" ? key : `${path}.${key}`;
+      const at2 = path === "" ? key : `${path}.${key}`;
       const counterpart = after.properties.get(key);
       if (counterpart === void 0) {
-        change("major", at, "was removed");
+        change("major", at2, "was removed");
         continue;
       }
-      if (property.isRequired && !counterpart.isRequired) change("major", at, "is now optional");
-      if (!property.isRequired && counterpart.isRequired) change("minor", at, "is now always sent");
-      compare(property.schema, counterpart.schema, at);
+      if (property.isRequired && !counterpart.isRequired) change("major", at2, "is now optional");
+      if (!property.isRequired && counterpart.isRequired) change("minor", at2, "is now always sent");
+      compare(property.schema, counterpart.schema, at2);
     }
     for (const [key, property] of after.properties) {
       if (before.properties.has(key)) continue;
-      const at = path === "" ? key : `${path}.${key}`;
-      change("minor", at, property.isRequired ? "was added" : "was added (optional)");
+      const at2 = path === "" ? key : `${path}.${key}`;
+      change("minor", at2, property.isRequired ? "was added" : "was added (optional)");
     }
+    const at = path === "" ? "[key]" : `${path}[key]`;
+    if (before.extra !== null && after.extra === null) change("major", at, "other keys are no longer allowed");
+    if (before.extra === null && after.extra !== null) change("minor", at, "other keys are now allowed");
+    if (before.extra !== null && after.extra !== null) compare(before.extra, after.extra, at);
+  }
+  function compareTuples(before, after, path) {
+    if (before.items.length !== after.items.length) {
+      change("major", path, `has ${after.items.length} items instead of ${before.items.length}`);
+      return;
+    }
+    before.items.forEach((item, index) => compare(item, after.items[index], `${path}[${index}]`));
+    if (before.rest === null && after.rest !== null) change("major", path, "can now have more items");
+    if (before.rest !== null && after.rest === null) change("minor", path, "can no longer have more items");
+    if (before.rest !== null && after.rest !== null) compare(before.rest, after.rest, `${path}[]`);
   }
   return compare;
 }
@@ -33862,7 +33887,8 @@ function accepts(expected, actual) {
   return expected.kind === kind;
 }
 function widened(shape, oldMembers, path) {
-  const isEnum = shape.kind === "literal" && oldMembers.some((member) => member.kind === "literal");
+  const kind = shape.kind === "literal" ? literalKind(shape.value) : null;
+  const isEnum = kind !== null && kind !== "null" && oldMembers.some((member) => member.kind === "literal" && literalKind(member.value) === kind);
   if (isEnum) return ["minor", path, `has a new value ${describe(shape)}`];
   return ["major", path, `can now be ${describe(shape)}`];
 }
@@ -33870,6 +33896,7 @@ function describe(shape) {
   if (shape.kind === "literal") return shape.value;
   if (shape.kind === "integer") return "an integer";
   if (shape.kind === "array" || shape.kind === "object") return `an ${shape.kind}`;
+  if (shape.kind === "tuple") return "a tuple";
   if (shape.kind === "null") return "null";
   return `a ${shape.kind}`;
 }
@@ -33897,6 +33924,10 @@ function shapes(side, schema, seen = /* @__PURE__ */ new Set()) {
   const { type } = schema;
   if (Array.isArray(type)) return [...new Set(type)].flatMap((each) => shapes(side, { ...schema, type: each }, seen));
   if (type === "object") return [objectShape(schema)];
+  if (type === "array" && Array.isArray(schema.prefixItems)) {
+    const rest = schema.items === void 0 || schema.items === false ? null : schema.items;
+    return [{ kind: "tuple", items: schema.prefixItems, rest }];
+  }
   if (type === "array") return [{ kind: "array", items: schema.items ?? true }];
   if (typeof type === "string" && isPrimitive(type)) return [{ kind: type }];
   return [{ kind: "any" }];
@@ -33907,14 +33938,26 @@ function isPrimitive(type) {
 function objectShape(schema) {
   const properties = isRecord(schema.properties) ? schema.properties : {};
   const required = Array.isArray(schema.required) ? schema.required : [];
+  const { additionalProperties } = schema;
+  const isOpen = additionalProperties === void 0 && Object.keys(properties).length === 0;
+  const extra = additionalProperties === void 0 || additionalProperties === false ? null : additionalProperties;
   return {
     kind: "object",
     properties: new Map(
       Object.entries(properties).map(([key, property]) => [key, { schema: property, isRequired: required.includes(key) }])
-    )
+    ),
+    extra: isOpen ? true : extra
   };
 }
+function objectTags(side, shape) {
+  return [...shape.properties].flatMap(([key, property]) => {
+    const [only, ...others] = shapes(side, property.schema);
+    return only?.kind === "literal" && others.length === 0 ? [`${key}=${only.value}`] : [];
+  });
+}
 function mergeAllOf(side, parts, seen) {
+  const [only, ...others] = parts;
+  if (others.length === 0) return shapes(side, only, seen);
   const members = parts.map((part) => shapes(side, part, seen));
   if (!members.every((shapesOfPart) => shapesOfPart.length === 1 && shapesOfPart[0]?.kind === "object")) {
     return [{ kind: "any" }];
@@ -33927,7 +33970,7 @@ function mergeAllOf(side, parts, seen) {
       properties.set(key, { schema: property.schema, isRequired: property.isRequired || existing?.isRequired === true });
     }
   }
-  return [{ kind: "object", properties }];
+  return [{ kind: "object", properties, extra: null }];
 }
 
 // src/registry/infer.ts
@@ -33936,6 +33979,7 @@ function inferSchema(samples) {
   return { ...infer(samples), examples: samples.slice(0, 3) };
 }
 function infer(values) {
+  if (values.length === 0) return {};
   const groups = /* @__PURE__ */ new Map();
   for (const value of values) {
     const kind = kindOf(value);

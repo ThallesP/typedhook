@@ -260,7 +260,8 @@ describe("generateCode python", () => {
         },
       }),
     );
-    expect(text).toContain('ShopRefs: TypeAlias = Tuple["ShopAB", "ShopCD", Any]\n');
+    // A tuple is a list in Python; an unknown member makes it a list of Any.
+    expect(text).toContain("ShopRefs: TypeAlias = List[Any]\n");
   });
 
   test("types recursive events and __proto__ names the way toOpenAPI wrote them", async () => {
@@ -432,7 +433,7 @@ describe("generateCode python", () => {
     );
   });
 
-  test("reads prefixItems the way the TypeScript generator does, as lists where Python tuples can't say it", async () => {
+  test("reads prefixItems the way the TypeScript generator does, as lists, since json.loads never returns a tuple", async () => {
     const pair = { type: "array", prefixItems: [{ type: "string" }, { type: "number" }] };
     const text = await generate(
       "acme/kinds",
@@ -449,14 +450,14 @@ describe("generateCode python", () => {
       }),
     );
     for (const line of [
-      "KindsPair: TypeAlias = Tuple[str, float]",
-      "KindsPairFixed: TypeAlias = Tuple[str, float]",
+      "KindsPair: TypeAlias = List[Union[str, float]]",
+      "KindsPairFixed: TypeAlias = List[Union[str, float]]",
       "KindsPairOptional: TypeAlias = List[Union[str, float]]",
-      "KindsPairCut: TypeAlias = Tuple[str]",
+      "KindsPairCut: TypeAlias = List[str]",
       "KindsPairRest: TypeAlias = List[Union[str, float, bool]]",
-      "KindsEmpty: TypeAlias = Tuple[()]",
+      "KindsEmpty: TypeAlias = List[Any]",
       "KindsEmptyRest: TypeAlias = List[str]",
-      "KindsZodPair: TypeAlias = Tuple[str, float]",
+      "KindsZodPair: TypeAlias = List[Union[str, float]]",
       "KindsZodRest: TypeAlias = List[Union[str, bool]]",
     ]) {
       expect(text).toContain(`\n${line}\n`);
@@ -588,10 +589,15 @@ describe("generateCode python", () => {
   test("refuses output past the size cap", async () => {
     const document = withComponents({ big: { enum: ["x".repeat(5_000_001)] } });
     await expect(generate("acme/x", document)).rejects.toThrow("over 5,000,000 characters");
-    // Each level doubles: a tuple repeats its member, which a union dedupe can't collapse.
+  });
+
+  test("a tuple repeating its member at every level stays linear", async () => {
     let schema: unknown = { type: "string" };
     for (let depth = 0; depth < 30; depth++) schema = { type: "array", prefixItems: [schema, schema] };
-    await expect(generate("acme/x", withComponents({ big: schema }))).rejects.toThrow("over 5,000,000 characters");
+    const startedAt = performance.now();
+    const text = await generate("acme/x", withComponents({ big: schema }));
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+    expect(text).toContain(`XBig: TypeAlias = ${"List[".repeat(30)}str${"]".repeat(30)}\n`);
   });
 
   test("the committed billing fixture matches the generator", async () => {
@@ -901,7 +907,7 @@ const shopDocument = withEvents({
 const consumer = `
 from __future__ import annotations
 
-from typing import Mapping, Tuple
+from typing import List, Mapping, Union
 
 import billing
 import shop
@@ -913,8 +919,8 @@ def handle_billing(body: bytes, headers: Mapping[str, str]) -> str:
         lines = event["data"]["lines"]
         return f"{event['data']['amountCents']} cents for {lines[0]['sku']}"
     if event["event"] == "usage.recorded":
-        meter: Tuple[str, float] = event["data"]["meter"]
-        return meter[0]
+        meter: List[Union[str, float]] = event["data"]["meter"]
+        return str(meter[0])
     if event["event"] == "invoice.voided":
         reason = event["data"]["reason"]
         return "unknown" if reason is None else reason

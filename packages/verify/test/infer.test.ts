@@ -39,3 +39,7 @@ test("mixed objects and primitives become anyOf, and __proto__ is just a key", (
 test("keeps at most three examples", () => {
   expect(inferSchema([1, 2, 3, 4]).examples).toEqual([1, 2, 3]);
 });
+
+test("an array that was always empty says nothing about its items", () => {
+  expect(inferSchema([{ tags: [] }])).toMatchObject({ properties: { tags: { type: "array", items: {} } } });
+});
