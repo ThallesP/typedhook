@@ -2,6 +2,8 @@
 
 A GitHub Action that publishes your webhook event schemas to the typedhook registry. It loads the module that exports your event map (zod, ArkType or Valibot schemas — anything implementing Standard JSON Schema), turns it into an OpenAPI 3.1 document and pushes it as `owner/name@version`, authenticated with the workflow's GitHub OIDC token. No secrets to configure.
 
+A step that runs `npx typedhook@latest publish` does the same with less setup. It also reads OpenAPI documents, JSON Schemas and example payloads, and picks the version from what changed (see the [CLI](https://github.com/ThallesP/typedhook/tree/main/packages/cli)). Use this action when you want its inputs, outputs and job summary.
+
 Consumers then pull typed events with:
 
 ```sh
