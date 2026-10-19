@@ -1,6 +1,6 @@
 import type { FetchImpl } from "@typedhook/verify/registry";
 import { type Env, findProject, registryUrl } from "../config";
-import { saveCredentials } from "../credentials";
+import { readCredentials, saveCredentials } from "../credentials";
 import { registryApi } from "../registry-api";
 
 export type LoginOptions = {
@@ -33,7 +33,10 @@ export async function login({
       waitSec = poll.interval;
       continue;
     }
+    const previous = await readCredentials(url, env);
     await saveCredentials(url, { token: poll.token, login: poll.login }, env);
+    // Nobody holds the replaced token anymore, so nobody could revoke it later.
+    if (previous) await api.revoke(previous.token);
     log(`signed in as ${poll.login}; you can publish as ${poll.owners.join(", ")}`);
     return;
   }

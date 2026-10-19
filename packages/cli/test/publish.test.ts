@@ -255,3 +255,32 @@ describe("add and pull in Python and Go", () => {
     await expect(pull({ check: true, cwd: receiver, env, log })).rejects.toThrow(`${path} doesn't match typedhook.lock`);
   });
 });
+
+describe("paths and versions of sources", () => {
+  test("flag paths are relative to where publish runs, and saved relative to typedhook.json", async () => {
+    await signIn();
+    await write("typedhook.json", "{}");
+    await write("app/events/a.json", JSON.stringify({ type: "object", properties: { type: { const: "a" } } }));
+    await publish({ settings: { schemas: "events", name: "nested" }, cwd: join(sender, "app"), env, log });
+    expect(JSON.parse(await readFile(join(sender, "typedhook.json"), "utf8")).publish).toEqual({
+      schemas: "app/events",
+      name: "nested",
+    });
+  });
+
+  test("accepts OpenAPI 3.2", async () => {
+    await signIn();
+    const schema = { type: "object", properties: { type: { const: "a" } } };
+    const document = { openapi: "3.2.0", info: { title: "x", version: "1" }, webhooks: { a: { post: { requestBody: { content: { "application/json": { schema } } } } } } };
+    await write("openapi.json", JSON.stringify(document));
+    await publish({ settings: { openapi: "openapi.json", name: "three-two" }, isDryRun: true, cwd: sender, env, log });
+    expect(lines.at(-1)).toBe("dry run: nothing was uploaded");
+  });
+
+  test("a new login revokes the token it replaces", async () => {
+    await signIn();
+    const { token } = JSON.parse(await readFile(credentialsPath(env), "utf8"))[registryUrl];
+    await signIn();
+    await expect(whoami({ cwd: sender, env: { ...env, TYPEDHOOK_TOKEN: token }, log })).rejects.toThrow("401");
+  });
+});

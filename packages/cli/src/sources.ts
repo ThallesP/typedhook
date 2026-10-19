@@ -85,8 +85,9 @@ async function loadEvents(path: string, exportName: string): Promise<Record<stri
  * whole API description publishes as just its events.
  */
 function fromOpenAPI(document: unknown, label: string, given: DocumentInfo): OpenAPIDocument {
-  if (!isRecord(document) || typeof document.openapi !== "string" || !document.openapi.startsWith("3.1")) {
-    throw new Error(`${label} must be an OpenAPI 3.1 document (3.0 has no webhooks section)`);
+  // The pruned document is written as 3.1, which the webhooks section of 3.2 fits.
+  if (!isRecord(document) || typeof document.openapi !== "string" || !/^3\.[12]\./.test(document.openapi)) {
+    throw new Error(`${label} must be an OpenAPI 3.1 or 3.2 document; 3.0 has no webhooks section`);
   }
   if (!isRecord(document.webhooks)) throw new Error(`${label} has no webhooks section`);
   const components = isRecord(document.components) ? document.components : {};

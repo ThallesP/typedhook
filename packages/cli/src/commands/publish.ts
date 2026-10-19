@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type Bump,
   type DocumentDiff,
@@ -40,6 +40,8 @@ export type PublishOptions = {
 
 const BUMP_MARKS: Record<Bump, string> = { major: "!", minor: "+", patch: "~" };
 
+const PATH_SETTINGS = ["events", "openapi", "schemas", "examples"] as const;
+
 type LatestRelease = DocumentDiff & { version: string };
 
 /** `typedhook publish` */
@@ -59,7 +61,7 @@ export async function publish({
   const project = await findProject(cwd);
   const root = project?.root ?? cwd;
   const saved = project?.config.publish ?? {};
-  const merged: PublishConfig = { ...saved, ...settings };
+  const merged: PublishConfig = { ...saved, ...relativeTo(root, cwd, settings) };
   const source = sourceOf(merged);
   const name = (merged.name ?? (await defaultName(root))).toLowerCase();
   if (!REGISTRY_NAME.test(name)) {
@@ -108,6 +110,19 @@ export async function publish({
     await writeConfig(root, { ...config, publish: next });
     log("saved these settings to typedhook.json, so next time it's just `typedhook publish`");
   }
+}
+
+/**
+ * Paths in flags are relative to where the command runs; typedhook.json keeps
+ * them relative to itself, so a later run from anywhere in the project works.
+ */
+function relativeTo(root: string, cwd: string, settings: PublishConfig): PublishConfig {
+  const rebased: PublishConfig = { ...settings };
+  for (const key of PATH_SETTINGS) {
+    const path = settings[key];
+    if (path !== undefined && !isAbsolute(path)) rebased[key] = relative(root, resolve(cwd, path)) || ".";
+  }
+  return rebased;
 }
 
 /** A version that doesn't cover the changes would break consumers on a semver range. */
