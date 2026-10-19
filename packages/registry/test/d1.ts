@@ -2,7 +2,7 @@ import { Database as Sqlite } from "bun:sqlite";
 import type { Database, SqlValue, Statement } from "../src/store";
 
 const migrations = await Promise.all(
-  ["0001_init.sql", "0002_accounts_and_listing.sql"].map((file) =>
+  ["0001_init.sql", "0002_accounts_and_listing.sql", "0003_membership_checks.sql"].map((file) =>
     Bun.file(new URL(`../migrations/${file}`, import.meta.url)).text(),
   ),
 );

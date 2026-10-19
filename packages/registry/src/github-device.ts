@@ -33,6 +33,8 @@ const SCOPE = "read:org";
 
 const headers = { accept: "application/json", "user-agent": "typedhook-registry" };
 
+const MAX_MEMBERSHIP_PAGES = 10;
+
 export function githubDevice({ clientId, fetchImpl = fetch }: { clientId: string; fetchImpl?: Fetch }): GithubDevice {
   async function postForm(url: string, form: Record<string, string>): Promise<Record<string, unknown>> {
     const response = await fetchImpl(url, {
@@ -55,16 +57,27 @@ export function githubDevice({ clientId, fetchImpl = fetch }: { clientId: string
 
   async function account(token: string): Promise<GithubAccount> {
     const user = await getJson("/user", token);
-    const memberships = await getJson("/user/memberships/orgs?state=active&per_page=100", token);
     if (!isRecord(user) || typeof user.login !== "string" || typeof user.id !== "number") {
       throw new Error("GitHub sent an unexpected /user response");
     }
-    const orgs = (Array.isArray(memberships) ? memberships : []).flatMap((membership) => {
-      const org = isRecord(membership) ? membership.organization : undefined;
-      if (!isRecord(org) || typeof org.login !== "string" || typeof org.id !== "number") return [];
-      return [{ id: String(org.id), login: org.login }];
-    });
-    return { id: String(user.id), login: user.login, orgs };
+    return { id: String(user.id), login: user.login, orgs: await organizations(token) };
+  }
+
+  /** Orgs where the user is an admin or member; billing managers can't touch code, so they can't publish either. */
+  async function organizations(token: string): Promise<GithubAccount["orgs"]> {
+    const orgs: GithubAccount["orgs"] = [];
+    for (let page = 1; page <= MAX_MEMBERSHIP_PAGES; page++) {
+      const memberships = await getJson(`/user/memberships/orgs?state=active&per_page=100&page=${page}`, token);
+      if (!Array.isArray(memberships)) throw new Error("GitHub sent an unexpected memberships response");
+      for (const membership of memberships) {
+        const org = isRecord(membership) ? membership.organization : undefined;
+        const role = isRecord(membership) ? membership.role : undefined;
+        if (!isRecord(org) || typeof org.login !== "string" || typeof org.id !== "number") continue;
+        if (role === "admin" || role === "member") orgs.push({ id: String(org.id), login: org.login });
+      }
+      if (memberships.length < 100) break;
+    }
+    return orgs;
   }
 
   return {

@@ -1,4 +1,5 @@
 import {
+  type Bump,
   LANGS,
   eventKey,
   findLang,
@@ -13,6 +14,8 @@ import type { Store } from "./store";
 export type McpOptions = {
   store: Store;
   resolve: (owner: string, name: string, range: string) => Promise<Resolved>;
+  /** Newest first, as `GET /registries/:owner/:name` lists them. */
+  versions: (owner: string, name: string) => Promise<{ version: string; bump: Bump | null; createdAt: string }[]>;
 };
 
 type Args = Record<string, unknown>;
@@ -51,7 +54,7 @@ const tools: Tool[] = [
     async run(args, options) {
       const { owner, name, row } = await resolveArgs(args, options);
       const model = readRegistryDocument(`${owner}/${name}`, JSON.parse(row.document));
-      const versions = await options.store.listVersionInfo(owner, name);
+      const versions = await options.versions(owner, name);
       const lines = [
         `${owner}/${name}@${row.version}`,
         model.discriminator

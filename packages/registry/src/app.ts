@@ -15,7 +15,7 @@ import type { GithubDevice } from "./github-device";
 import type { VerifyGithubToken } from "./github-oidc";
 import { isRecord } from "./is-record";
 import { type McpOptions, handleMcp } from "./mcp";
-import type { Org, Store, VersionInfo, VersionRow } from "./store";
+import type { Org, Store, TokenRow, VersionInfo, VersionRow } from "./store";
 import { homePage, notFoundPage, registryPage } from "./pages/render";
 import { newToken, tokenHash } from "./tokens";
 
@@ -60,22 +60,31 @@ type DocumentResult =
   | { ok: true; text: string; canonical: string; document: Record<string, unknown> }
   | { ok: false; status: 400 | 413; error: string };
 
-/** Who's publishing: the owners they may publish as (lowercased login → GitHub id). */
-type Publisher = { owners: Map<string, string>; publishedBy: string };
+/**
+ * Who's publishing: the owners they may publish as (lowercased login → GitHub
+ * id), and orgs they belonged to at a login too long ago to count.
+ */
+type Publisher = { owners: Map<string, string>; staleOrgs: string[]; publishedBy: string };
 
 type AuthResult = { ok: true; publisher: Publisher } | { ok: false; status: 401 | 403; error: string };
 
 export type Resolved = { ok: true; row: VersionRow } | { ok: false; status: 400 | 404; error: string };
 
 export function createApp({ store, verifyGithubToken, githubDevice, adapter }: AppOptions) {
+  async function publisherFor(user: TokenRow): Promise<Publisher> {
+    const memberships = await store.listMemberships(user.userId);
+    const fresh = memberships.filter((membership) => membership.isFresh);
+    const staleOrgs = memberships.filter((membership) => !membership.isFresh).map((membership) => membership.login);
+    return { owners: ownersOf(user.login, user.userId, fresh), staleOrgs, publishedBy: user.login };
+  }
+
   async function authenticate(header: string | null): Promise<AuthResult> {
     const token = bearerToken(header);
     if (!token) return { ok: false, status: 401, error: "missing bearer token" };
     if (token.startsWith("th_")) {
       const user = await store.findToken(await tokenHash(token));
       if (!user) return { ok: false, status: 401, error: "invalid token, run `typedhook login` again" };
-      const orgs = await store.listMemberships(user.userId);
-      return { ok: true, publisher: { owners: ownersOf(user.login, user.userId, orgs), publishedBy: user.login } };
+      return { ok: true, publisher: await publisherFor(user) };
     }
     const identity = await verifyGithubToken(token);
     if (!identity) return { ok: false, status: 401, error: "invalid token" };
@@ -87,7 +96,7 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
       };
     }
     const owners = new Map([[identity.repositoryOwner.toLowerCase(), identity.repositoryOwnerId]]);
-    return { ok: true, publisher: { owners, publishedBy: `${identity.repository} (GitHub Actions)` } };
+    return { ok: true, publisher: { owners, staleOrgs: [], publishedBy: `${identity.repository} (GitHub Actions)` } };
   }
 
   async function resolve(owner: string, name: string, range: string): Promise<Resolved> {
@@ -103,7 +112,6 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
     return { ok: true, row };
   }
 
-  const mcpOptions: McpOptions = { store, resolve };
 
   async function sortedVersions(owner: string, name: string) {
     const rows = await store.listVersionInfo(owner, name);
@@ -113,6 +121,8 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
       return row ? [parseVersionInfo(row)] : [];
     });
   }
+
+  const mcpOptions: McpOptions = { store, resolve, versions: sortedVersions };
 
   return new Elysia({ adapter })
     .onError(({ code, error, status }) => {
@@ -129,8 +139,13 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
         const { version } = params;
         const auth = await authenticate(request.headers.get("authorization"));
         if (!auth.ok) return status(auth.status, { error: auth.error });
-        const { owners, publishedBy } = auth.publisher;
+        const { owners, staleOrgs, publishedBy } = auth.publisher;
         const ownerId = owners.get(owner);
+        if (ownerId === undefined && staleOrgs.includes(owner)) {
+          return status(403, {
+            error: `your membership in ${owner} was checked over a week ago; run \`typedhook login\` again to publish for it`,
+          });
+        }
         if (ownerId === undefined) {
           return status(403, { error: `you can publish as ${[...owners.keys()].join(", ")}, not ${owner}` });
         }
@@ -236,8 +251,8 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
       const token = bearerToken(request.headers.get("authorization"));
       const user = token?.startsWith("th_") ? await store.findToken(await tokenHash(token)) : null;
       if (!user) return status(401, { error: "not signed in, run `typedhook login`" });
-      const orgs = await store.listMemberships(user.userId);
-      return { login: user.login, owners: [...ownersOf(user.login, user.userId, orgs).keys()] };
+      const { owners } = await publisherFor(user);
+      return { login: user.login, owners: [...owners.keys()] };
     })
     .delete("/auth/token", async ({ request, status }) => {
       const token = bearerToken(request.headers.get("authorization"));

@@ -58,6 +58,11 @@ export interface Org {
   login: string;
 }
 
+export interface Membership extends Org {
+  /** Checked at a login within MEMBERSHIP_MAX_AGE; older ones don't grant publishing. */
+  isFresh: boolean;
+}
+
 export interface Store {
   /** Binds the login to `ownerId` on first push; returns whichever id it is bound to. */
   claimOwner(login: string, ownerId: string): Promise<string | null>;
@@ -72,11 +77,17 @@ export interface Store {
   /** Newest first; `query` matches owner/name, title and description. */
   searchRegistries(query: string, limit: number): Promise<RegistryRow[]>;
   createToken(hash: string, user: TokenRow): Promise<void>;
+  /** Null for unknown tokens and ones older than TOKEN_MAX_AGE. */
   findToken(hash: string): Promise<TokenRow | null>;
   deleteToken(hash: string): Promise<void>;
   replaceMemberships(userId: string, orgs: Org[]): Promise<void>;
-  listMemberships(userId: string): Promise<Org[]>;
+  listMemberships(userId: string): Promise<Membership[]>;
 }
+
+// SQLite datetime() modifiers. A token that leaks or outlives its owner's
+// laptop ages out; a membership has to be re-checked by logging in again.
+const TOKEN_MAX_AGE = "-90 days";
+const MEMBERSHIP_MAX_AGE = "-7 days";
 
 const REGISTRY_COLUMNS =
   "owner, name, title, description, latest, updated_at AS updatedAt FROM registries";
@@ -175,8 +186,8 @@ export function d1Store(db: Database): Store {
 
     async findToken(hash) {
       const row = await db
-        .prepare("SELECT user_id AS userId, login FROM tokens WHERE hash = ?")
-        .bind(hash)
+        .prepare("SELECT user_id AS userId, login FROM tokens WHERE hash = ? AND created_at >= datetime('now', ?)")
+        .bind(hash, TOKEN_MAX_AGE)
         .first<TokenRow>();
       if (row) {
         await db.prepare("UPDATE tokens SET last_used_at = CURRENT_TIMESTAMP WHERE hash = ?").bind(hash).run();
@@ -192,7 +203,9 @@ export function d1Store(db: Database): Store {
       await db.prepare("DELETE FROM memberships WHERE user_id = ?").bind(userId).run();
       for (const org of orgs) {
         await db
-          .prepare("INSERT OR IGNORE INTO memberships (user_id, org_id, org_login) VALUES (?, ?, ?)")
+          .prepare(
+            "INSERT OR IGNORE INTO memberships (user_id, org_id, org_login, checked_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+          )
           .bind(userId, org.id, org.login.toLowerCase())
           .run();
       }
@@ -200,10 +213,12 @@ export function d1Store(db: Database): Store {
 
     async listMemberships(userId) {
       const { results } = await db
-        .prepare("SELECT org_id AS id, org_login AS login FROM memberships WHERE user_id = ?")
-        .bind(userId)
-        .all<Org>();
-      return results;
+        .prepare(
+          "SELECT org_id AS id, org_login AS login, coalesce(checked_at >= datetime('now', ?), 0) AS isFresh FROM memberships WHERE user_id = ?",
+        )
+        .bind(MEMBERSHIP_MAX_AGE, userId)
+        .all<{ id: string; login: string; isFresh: number }>();
+      return results.map((row) => ({ ...row, isFresh: row.isFresh === 1 }));
     },
   };
 }

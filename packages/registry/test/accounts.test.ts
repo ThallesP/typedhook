@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { type AppOptions, createApp } from "../src/app";
 import type { DevicePoll, GithubDevice } from "../src/github-device";
 import { githubVerifier } from "../src/github-oidc";
-import { d1Store } from "../src/store";
+import { githubDevice } from "../src/github-device";
+import { type Database, d1Store } from "../src/store";
 import { memoryD1 } from "./d1";
 import { AUDIENCE, keySet, signGithubToken } from "./github-token";
 
@@ -52,10 +53,12 @@ const thalles: DevicePoll = {
 };
 
 let app: ReturnType<typeof createApp>;
+let db: Database;
 
 function makeApp(overrides: Partial<AppOptions> = {}) {
+  db = memoryD1();
   app = createApp({
-    store: d1Store(memoryD1()),
+    store: d1Store(db),
     verifyGithubToken: githubVerifier({ audience: AUDIENCE, keySet }),
     githubDevice: fakeDevice([{ status: "pending", interval: 5 }, thalles]),
     ...overrides,
@@ -118,6 +121,47 @@ describe("typedhook login", () => {
   test("a registry without a GitHub app says so", async () => {
     makeApp({ githubDevice: null });
     expect((await call("POST", "/auth/device")).status).toBe(503);
+  });
+});
+
+describe("token and membership lifetimes", () => {
+  test("a token ages out after 90 days", async () => {
+    const token = await login();
+    await db.prepare("UPDATE tokens SET created_at = datetime('now', '-91 days')").run();
+    expect((await call("GET", "/auth/whoami", { token })).status).toBe(401);
+  });
+
+  test("publishing for an org needs a membership checked in the last week", async () => {
+    const token = await login();
+    await db.prepare("UPDATE memberships SET checked_at = datetime('now', '-8 days')").run();
+    expect(await call("PUT", "/registries/acme/billing/versions/1.0.0", { token, body: document({}) })).toEqual({
+      status: 403,
+      body: { error: "your membership in acme was checked over a week ago; run `typedhook login` again to publish for it" },
+    });
+    expect((await call("PUT", "/registries/thallesp/billing/versions/1.0.0", { token, body: document({}) })).status).toBe(201);
+    expect((await call("GET", "/auth/whoami", { token })).body.owners).toEqual(["thallesp"]);
+  });
+});
+
+describe("githubDevice", () => {
+  test("keeps admin and member orgs across pages", async () => {
+    const memberships = (page: number) =>
+      page === 1
+        ? Array.from({ length: 100 }, (_, index) => ({
+            role: index === 0 ? "billing_manager" : "member",
+            organization: { id: index, login: `org${index}` },
+          }))
+        : [{ role: "admin", organization: { id: 500, login: "last" } }];
+    const fetchImpl = async (url: string) => {
+      if (url.endsWith("/login/oauth/access_token")) return Response.json({ access_token: "gho_x" });
+      if (url.endsWith("/user")) return Response.json({ id: 42, login: "thallesp" });
+      return Response.json(memberships(Number(new URL(url).searchParams.get("page"))));
+    };
+    const poll = await githubDevice({ clientId: "id", fetchImpl }).poll("device");
+    if (poll.status !== "authorized") throw new Error(`unexpected ${poll.status}`);
+    expect(poll.account.orgs).toHaveLength(100);
+    expect(poll.account.orgs.map((org) => org.login)).not.toContain("org0");
+    expect(poll.account.orgs.at(-1)).toEqual({ id: "500", login: "last" });
   });
 });
 
@@ -240,6 +284,11 @@ describe("MCP", () => {
       "thallesp/billing@1.0.0: Billing. Invoices and payments",
     );
     expect(await text("get_registry", { registry: "thallesp/billing" })).toContain('Payloads name their event in the "event" field.');
+    await call("PUT", "/registries/thallesp/billing/versions/1.1.0", {
+      token,
+      body: document({ "invoice.paid": paid, "invoice.sent": paid }, "1.1.0"),
+    });
+    expect(await text("get_registry", { registry: "thallesp/billing" })).toMatch(/Versions:\n- 1\.1\.0 \(minor\) .+\n- 1\.0\.0 /);
     expect(JSON.parse(await text("get_event", { registry: "thallesp/billing", event: "invoice.paid" }))).toMatchObject({
       event: "invoice.paid",
     });
