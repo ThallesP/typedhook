@@ -14,6 +14,8 @@ import { billingGo } from "./fixtures/go-billing";
 const hash = "sha256-3q2+7w/Zm9vYmFy=";
 const emptyDocument = { openapi: "3.1.0", info: { title: "x", version: "1.0.0" }, webhooks: {} };
 const go = process.env.GO ?? Bun.which("go") ?? "";
+// ubuntu-latest has Go, so a missing toolchain fails CI instead of skipping the suite.
+const isCI = process.env.CI === "true";
 // Caches outside $HOME, kept between runs: the first build of net/http and crypto is the slow part.
 const scratch = process.env.TYPEDHOOK_GO_SCRATCH ?? join(tmpdir(), "typedhook-go");
 
@@ -807,7 +809,7 @@ describe("generateCode go", () => {
   });
 });
 
-describe.skipIf(go === "")("generated Go, built with the go toolchain", () => {
+describe.skipIf(!isCI && go === "")("generated Go, built with the go toolchain", () => {
   test(
     "is gofmt-clean, passes go vet, and verifies and decodes like @typedhook/verify",
     async () => {

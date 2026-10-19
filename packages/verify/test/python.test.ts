@@ -16,6 +16,8 @@ const hash = "sha256-3q2+7w/Zm9vYmFy=";
 const emptyDocument = { openapi: "3.1.0", info: { title: "x", version: "1.0.0" }, webhooks: {} };
 const python = Bun.which("python3");
 const mypy = process.env.MYPY ?? Bun.which("mypy");
+// CI installs both, so a missing tool fails there instead of skipping the suite.
+const isCI = process.env.CI === "true";
 const encoder = new TextEncoder();
 
 function generate(registry: string, document: unknown): Promise<string> {
@@ -676,7 +678,7 @@ function runPython(dir: string, args: string[]) {
   return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
-describe.skipIf(python === null)("generated Python at runtime", () => {
+describe.skipIf(!isCI && python === null)("generated Python at runtime", () => {
   let dir = "";
 
   beforeAll(async () => {
@@ -956,7 +958,7 @@ def describe(error: billing.WebhookVerificationError) -> bool:
     return error.reason == "invalid_signatur"
 `;
 
-describe.skipIf(mypy === null)("generated Python under mypy --strict", () => {
+describe.skipIf(!isCI && mypy === null)("generated Python under mypy --strict", () => {
   let dir = "";
 
   beforeAll(async () => {

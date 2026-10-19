@@ -32,6 +32,8 @@ jobs:
           until docker exec mysql mysql -h127.0.0.1 -uroot -pmysql -e "select 1" webhooks_test; do sleep 1; done
           until docker exec mongo mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]}).ok'; do sleep 1; done
           until docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary' | grep -q true; do sleep 1; done
+      # The generated Python is checked with mypy --strict; Go comes with the runner image.
+      - run: pipx install mypy
       - run: bun test
       # GitHub runs the Action straight from the repo, so the committed bundle
       # must match its source. typecheck above rebuilt it.
