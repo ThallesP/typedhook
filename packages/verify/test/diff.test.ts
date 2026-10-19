@@ -291,3 +291,39 @@ describe("diffDocuments and union variants", () => {
     expect(diffDocuments(before, after).bump).toBe("patch");
   });
 });
+
+describe("diffDocuments and tuple bounds", () => {
+  const tuple = (bounds: Record<string, number>) => ({
+    openapi: "3.1.0",
+    info: { title: "x", version: "1.0.0" },
+    webhooks: {
+      a: {
+        post: {
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { meter: { type: "array", prefixItems: [{ type: "string" }, { type: "number" }], ...bounds } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  test("minItems making an item optional is major, and the reverse minor", () => {
+    expect(diffDocuments(tuple({}), tuple({ minItems: 1 })).changes).toEqual([
+      { bump: "major", event: "a", path: "meter[1]", message: "is now optional" },
+    ]);
+    expect(diffDocuments(tuple({ minItems: 1 }), tuple({})).bump).toBe("minor");
+  });
+
+  test("maxItems cutting an item is major", () => {
+    expect(diffDocuments(tuple({}), tuple({ maxItems: 1 })).changes).toEqual([
+      { bump: "major", event: "a", path: "meter", message: "has 1 items instead of 2" },
+    ]);
+  });
+});

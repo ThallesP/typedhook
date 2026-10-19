@@ -33882,7 +33882,14 @@ function comparer(old, next, event, changes) {
       change("major", path, `has ${after.items.length} items instead of ${before.items.length}`);
       return;
     }
-    before.items.forEach((item, index) => compare(item, after.items[index], `${path}[${index}]`));
+    before.items.forEach((item, index) => {
+      const at = `${path}[${index}]`;
+      const wasRequired = index < before.required;
+      const isRequired = index < after.required;
+      if (wasRequired && !isRequired) change("major", at, "is now optional");
+      if (!wasRequired && isRequired) change("minor", at, "is now always sent");
+      compare(item, after.items[index], at);
+    });
     if (before.rest === null && after.rest !== null) change("major", path, "can now have more items");
     if (before.rest !== null && after.rest === null) change("minor", path, "can no longer have more items");
     if (before.rest !== null && after.rest !== null) compare(before.rest, after.rest, `${path}[]`);
@@ -33934,8 +33941,11 @@ function shapes(side, schema, seen = /* @__PURE__ */ new Set()) {
   if (Array.isArray(type)) return [...new Set(type)].flatMap((each) => shapes(side, { ...schema, type: each }, seen));
   if (type === "object") return [objectShape(schema)];
   if (type === "array" && Array.isArray(schema.prefixItems)) {
-    const rest = schema.items === void 0 || schema.items === false ? null : schema.items;
-    return [{ kind: "tuple", items: schema.prefixItems, rest }];
+    const max = typeof schema.maxItems === "number" ? schema.maxItems : Number.POSITIVE_INFINITY;
+    const items = schema.prefixItems.slice(0, Math.max(0, max));
+    const required = typeof schema.minItems === "number" ? Math.min(schema.minItems, items.length) : items.length;
+    const isClosed = schema.items === void 0 || schema.items === false || max <= schema.prefixItems.length;
+    return [{ kind: "tuple", items, required, rest: isClosed ? null : schema.items }];
   }
   if (type === "array") return [{ kind: "array", items: schema.items ?? true }];
   if (typeof type === "string" && isPrimitive(type)) return [{ kind: type }];
