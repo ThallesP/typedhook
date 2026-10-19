@@ -88,7 +88,7 @@ describe("diffDocuments", () => {
     const after = document({ a: z.object({ x: z.string().describe("The x") }) });
     expect(diffDocuments(before, after)).toEqual({
       bump: "patch",
-      changes: [{ bump: "patch", event: "", path: "", message: "descriptions or examples changed" }],
+      changes: [{ bump: "patch", event: "", path: "", message: "title, descriptions or examples changed" }],
     });
   });
 
@@ -186,5 +186,75 @@ describe("diffDocuments and the discriminator", () => {
       path: "",
       message: 'events are now named by "action"',
     });
+  });
+});
+
+describe("diffDocuments from the review's cases", () => {
+  test("unions of objects pair up by their own discriminator", () => {
+    const union = (extra: Record<string, z.ZodType>) =>
+      z.object({
+        item: z.union([
+          z.object({ kind: z.literal("paid"), amount: z.number() }),
+          z.object({ kind: z.literal("voided"), reason: z.string(), ...extra }),
+        ]),
+      });
+    const unchanged = document({ a: union({ note: z.string() }) });
+    expect(diffDocuments(unchanged, structuredClone(unchanged))).toEqual({ bump: null, changes: [] });
+    expect(diffDocuments(unchanged, document({ a: union({}) })).changes).toEqual([
+      { bump: "major", event: "a", path: "data.item.note", message: "was removed" },
+    ]);
+  });
+
+  test("tuples, records, wrapped refs and removed components", () => {
+    const tuple = diffDocuments(
+      document({ a: z.object({ meter: z.tuple([z.string(), z.number()]) }) }),
+      document({ a: z.object({ meter: z.tuple([z.number(), z.number()]) }) }),
+    );
+    expect(tuple.bump).toBe("major");
+    expect(tuple.changes[0]).toMatchObject({ path: "data.meter[0]", message: "can now be a number" });
+    const shorter = diffDocuments(
+      document({ a: z.object({ meter: z.tuple([z.string(), z.number()]) }) }),
+      document({ a: z.object({ meter: z.tuple([z.string()]) }) }),
+    );
+    expect(shorter.changes).toEqual([{ bump: "major", event: "a", path: "data.meter", message: "has 1 items instead of 2" }]);
+    const record = diffDocuments(
+      document({ a: z.object({ metadata: z.record(z.string(), z.string()) }) }),
+      document({ a: z.object({ metadata: z.record(z.string(), z.union([z.string(), z.number()])) }) }),
+    );
+    expect(record.changes).toEqual([{ bump: "major", event: "a", path: "data.metadata[key]", message: "can now be a number" }]);
+
+    const wrapped = (type: string) => ({
+      openapi: "3.1.0",
+      info: { title: "x", version: "1.0.0" },
+      webhooks: {
+        a: {
+          post: {
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: { type: "object", properties: { id: { allOf: [{ $ref: "#/components/schemas/Id" }] } } },
+                },
+              },
+            },
+          },
+        },
+      },
+      components: { schemas: { Id: { type }, ...(type === "string" ? { Old: { type: "string" } } : {}) } },
+    });
+    expect(diffDocuments(wrapped("string"), wrapped("integer")).changes).toEqual([
+      { bump: "major", event: "a", path: "id", message: "can now be an integer" },
+      { bump: "minor", event: "a", path: "id", message: "can no longer be a string" },
+      { bump: "major", event: "", path: "Old", message: "type was removed" },
+    ]);
+  });
+
+  test("a title change is a patch, and null joining an enum is major", () => {
+    const before = document({ a: z.object({ status: z.enum(["paid", "refunded"]) }) });
+    const retitled = { ...structuredClone(before), info: { title: "Payments", version: "1.0.0" } };
+    expect(diffDocuments(before, retitled).bump).toBe("patch");
+    const nullable = document({ a: z.object({ status: z.enum(["paid", "refunded"]).nullable() }) });
+    expect(diffDocuments(before, nullable).changes).toEqual([
+      { bump: "major", event: "a", path: "data.status", message: "can now be null" },
+    ]);
   });
 });

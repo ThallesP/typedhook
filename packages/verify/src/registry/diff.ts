@@ -25,12 +25,22 @@ export type DocumentDiff = {
 // keywords don't change what a consumer's code can rely on.
 type PrimitiveKind = "string" | "number" | "integer" | "boolean" | "null";
 
+type ObjectShape = {
+  kind: "object";
+  properties: Map<string, { schema: unknown; isRequired: boolean }>;
+  /** The schema of keys besides the named ones, null when there are none. */
+  extra: unknown;
+};
+
+type TupleShape = { kind: "tuple"; items: unknown[]; rest: unknown };
+
 type Shape =
   | { kind: "any" }
   | { kind: PrimitiveKind }
   | { kind: "literal"; value: string }
   | { kind: "array"; items: unknown }
-  | { kind: "object"; properties: Map<string, { schema: unknown; isRequired: boolean }> };
+  | TupleShape
+  | ObjectShape;
 
 type Side = { schemas: Record<string, unknown> };
 
@@ -77,8 +87,12 @@ export function diffDocuments(before: unknown, after: unknown): DocumentDiff {
     const compare = comparer(old, next, event.name, changes);
     compare(previous.payload, event.payload, "");
   }
-  if (changes.length === 0 && canonicalJson(withoutInfo(before)) !== canonicalJson(withoutInfo(after))) {
-    changes.push({ bump: "patch", event: "", path: "", message: "descriptions or examples changed" });
+  // TypeScript exports an alias per component schema, so dropping one breaks an import.
+  for (const key of Object.keys(old.schemas)) {
+    if (!Object.hasOwn(next.schemas, key)) changes.push({ bump: "major", event: "", path: key, message: "type was removed" });
+  }
+  if (changes.length === 0 && canonicalJson(withoutVersion(before)) !== canonicalJson(withoutVersion(after))) {
+    changes.push({ bump: "patch", event: "", path: "", message: "title, descriptions or examples changed" });
   }
   return { bump: highestBump(changes), changes };
 }
@@ -117,10 +131,11 @@ function highestBump(changes: SchemaChange[]): Bump | null {
   return highest;
 }
 
-function withoutInfo(document: unknown): unknown {
-  if (!isRecord(document)) return document;
-  const { info, ...rest } = document;
-  return rest;
+/** The document minus `info.version`, which differs between any two versions. */
+function withoutVersion(document: unknown): unknown {
+  if (!isRecord(document) || !isRecord(document.info)) return document;
+  const { version, ...info } = document.info;
+  return { ...document, info };
 }
 
 function comparer(old: RegistryModel, next: RegistryModel, event: string, changes: SchemaChange[]) {
@@ -146,7 +161,7 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
     }
     const matched = new Set<Shape>();
     for (const shape of newMembers) {
-      const counterpart = oldMembers.find((candidate) => accepts(candidate, shape));
+      const counterpart = counterpartOf(shape, oldMembers, matched);
       if (counterpart === undefined) {
         change(...widened(shape, oldMembers, path));
         continue;
@@ -154,17 +169,30 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
       matched.add(counterpart);
       if (counterpart.kind === "object" && shape.kind === "object") compareObjects(counterpart, shape, path);
       if (counterpart.kind === "array" && shape.kind === "array") compare(counterpart.items, shape.items, `${path}[]`);
+      if (counterpart.kind === "tuple" && shape.kind === "tuple") compareTuples(counterpart, shape, path);
     }
     for (const shape of oldMembers) {
       if (!matched.has(shape)) change("minor", path, `can no longer be ${describe(shape)}`);
     }
   }
 
-  function compareObjects(
-    before: Extract<Shape, { kind: "object" }>,
-    after: Extract<Shape, { kind: "object" }>,
-    path: string,
-  ): void {
+  /**
+   * The old member a new one is compared with. Objects in a union pair up by a
+   * property pinned to the same value (their own discriminator), then by
+   * position among the objects not paired yet.
+   */
+  function counterpartOf(shape: Shape, oldMembers: Shape[], matched: Set<Shape>): Shape | undefined {
+    const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
+    if (shape.kind !== "object") return candidates[0];
+    const tags = objectTags(next, shape);
+    const unmatched = candidates.filter((candidate) => !matched.has(candidate));
+    const tagged = unmatched.find(
+      (candidate) => candidate.kind === "object" && objectTags(old, candidate).some((tag) => tags.includes(tag)),
+    );
+    return tagged ?? unmatched[0] ?? candidates[0];
+  }
+
+  function compareObjects(before: ObjectShape, after: ObjectShape, path: string): void {
     for (const [key, property] of before.properties) {
       const at = path === "" ? key : `${path}.${key}`;
       const counterpart = after.properties.get(key);
@@ -181,6 +209,21 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
       const at = path === "" ? key : `${path}.${key}`;
       change("minor", at, property.isRequired ? "was added" : "was added (optional)");
     }
+    const at = path === "" ? "[key]" : `${path}[key]`;
+    if (before.extra !== null && after.extra === null) change("major", at, "other keys are no longer allowed");
+    if (before.extra === null && after.extra !== null) change("minor", at, "other keys are now allowed");
+    if (before.extra !== null && after.extra !== null) compare(before.extra, after.extra, at);
+  }
+
+  function compareTuples(before: TupleShape, after: TupleShape, path: string): void {
+    if (before.items.length !== after.items.length) {
+      change("major", path, `has ${after.items.length} items instead of ${before.items.length}`);
+      return;
+    }
+    before.items.forEach((item, index) => compare(item, after.items[index], `${path}[${index}]`));
+    if (before.rest === null && after.rest !== null) change("major", path, "can now have more items");
+    if (before.rest !== null && after.rest === null) change("minor", path, "can no longer have more items");
+    if (before.rest !== null && after.rest !== null) compare(before.rest, after.rest, `${path}[]`);
   }
 
   return compare;
@@ -194,9 +237,17 @@ function accepts(expected: Shape, actual: Shape): boolean {
   return expected.kind === kind;
 }
 
-/** A new kind of value the consumer didn't expect. A new enum value is minor by convention, like Stripe and GitHub treat them. */
+/**
+ * A new kind of value the consumer didn't expect. A new value of an enum is
+ * minor by convention, like Stripe and GitHub treat them, but not a value of
+ * another type, like null joining a string enum.
+ */
 function widened(shape: Shape, oldMembers: Shape[], path: string): [Bump, string, string] {
-  const isEnum = shape.kind === "literal" && oldMembers.some((member) => member.kind === "literal");
+  const kind = shape.kind === "literal" ? literalKind(shape.value) : null;
+  const isEnum =
+    kind !== null &&
+    kind !== "null" &&
+    oldMembers.some((member) => member.kind === "literal" && literalKind(member.value) === kind);
   if (isEnum) return ["minor", path, `has a new value ${describe(shape)}`];
   return ["major", path, `can now be ${describe(shape)}`];
 }
@@ -205,6 +256,7 @@ function describe(shape: Shape): string {
   if (shape.kind === "literal") return shape.value;
   if (shape.kind === "integer") return "an integer";
   if (shape.kind === "array" || shape.kind === "object") return `an ${shape.kind}`;
+  if (shape.kind === "tuple") return "a tuple";
   if (shape.kind === "null") return "null";
   return `a ${shape.kind}`;
 }
@@ -236,6 +288,11 @@ function shapes(side: Side, schema: unknown, seen = new Set<string>()): Shape[] 
   const { type } = schema;
   if (Array.isArray(type)) return [...new Set(type)].flatMap((each) => shapes(side, { ...schema, type: each }, seen));
   if (type === "object") return [objectShape(schema)];
+  if (type === "array" && Array.isArray(schema.prefixItems)) {
+    // A bare prefixItems is a fixed tuple, the way the TypeScript generator reads it.
+    const rest = schema.items === undefined || schema.items === false ? null : schema.items;
+    return [{ kind: "tuple", items: schema.prefixItems, rest }];
+  }
   if (type === "array") return [{ kind: "array", items: schema.items ?? true }];
   if (typeof type === "string" && isPrimitive(type)) return [{ kind: type }];
   return [{ kind: "any" }];
@@ -245,19 +302,34 @@ function isPrimitive(type: string): type is PrimitiveKind {
   return PRIMITIVES.has(type);
 }
 
-function objectShape(schema: Record<string, unknown>): Shape {
+function objectShape(schema: Record<string, unknown>): ObjectShape {
   const properties = isRecord(schema.properties) ? schema.properties : {};
   const required = Array.isArray(schema.required) ? schema.required : [];
+  const { additionalProperties } = schema;
+  // Like the TypeScript generator: no named properties and no rule means any key.
+  const isOpen = additionalProperties === undefined && Object.keys(properties).length === 0;
+  const extra = additionalProperties === undefined || additionalProperties === false ? null : additionalProperties;
   return {
     kind: "object",
     properties: new Map(
       Object.entries(properties).map(([key, property]) => [key, { schema: property, isRequired: required.includes(key) }]),
     ),
+    extra: isOpen ? true : extra,
   };
 }
 
-/** allOf of objects merges into one object; anything else is compared loosely. */
+/** `property=value` for each property pinned to one literal, which tells union members apart. */
+function objectTags(side: Side, shape: ObjectShape): string[] {
+  return [...shape.properties].flatMap(([key, property]) => {
+    const [only, ...others] = shapes(side, property.schema);
+    return only?.kind === "literal" && others.length === 0 ? [`${key}=${only.value}`] : [];
+  });
+}
+
+/** allOf of one part is that part, allOf of objects merges into one object, anything else is compared loosely. */
 function mergeAllOf(side: Side, parts: unknown[], seen: Set<string>): Shape[] {
+  const [only, ...others] = parts;
+  if (others.length === 0) return shapes(side, only, seen);
   const members = parts.map((part) => shapes(side, part, seen));
   if (!members.every((shapesOfPart) => shapesOfPart.length === 1 && shapesOfPart[0]?.kind === "object")) {
     return [{ kind: "any" }];
@@ -270,5 +342,5 @@ function mergeAllOf(side: Side, parts: unknown[], seen: Set<string>): Shape[] {
       properties.set(key, { schema: property.schema, isRequired: property.isRequired || existing?.isRequired === true });
     }
   }
-  return [{ kind: "object", properties }];
+  return [{ kind: "object", properties, extra: null }];
 }
