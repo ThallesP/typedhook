@@ -147,3 +147,44 @@ describe("versions", () => {
     expect(isBumpEnough(null, null)).toBe(true);
   });
 });
+
+describe("diffDocuments and the discriminator", () => {
+  const webhook = (properties: Record<string, unknown>) => ({
+    post: { requestBody: { content: { "application/json": { schema: { type: "object", properties } } } } },
+  });
+  const doc = (webhooks: Record<string, unknown>) => ({ openapi: "3.1.0", info: { title: "x", version: "1.0.0" }, webhooks });
+
+  test("losing the discriminator is major, even when the change is an added event", () => {
+    const before = doc({ star: webhook({ type: { const: "star" } }) });
+    const after = doc({ star: webhook({ type: { const: "star" } }), watch: webhook({ type: { const: "star" } }) });
+    expect(diffDocuments(before, after)).toEqual({
+      bump: "major",
+      changes: [
+        { bump: "major", event: "", path: "", message: 'events are no longer named by "type"' },
+        { bump: "minor", event: "watch", path: "", message: "added" },
+      ],
+    });
+  });
+
+  test("a renamed discriminator value re-keys the event, which is major", () => {
+    const before = doc({ InvoicePaid: webhook({ type: { const: "invoice.paid" } }), Other: webhook({ type: { const: "other" } }) });
+    const after = doc({ InvoicePaid: webhook({ type: { const: "invoice.succeeded" } }), Other: webhook({ type: { const: "other" } }) });
+    expect(diffDocuments(before, after).changes).toContainEqual({
+      bump: "major",
+      event: "InvoicePaid",
+      path: "",
+      message: 'is now keyed "invoice.succeeded"',
+    });
+  });
+
+  test("one event doesn't pick an unrelated const as the discriminator", () => {
+    const before = doc({ star: webhook({ action: { const: "created" } }) });
+    const after = doc({ star: webhook({ action: { const: "created" } }), watch: webhook({ action: { const: "started" } }) });
+    expect(diffDocuments(before, after).changes[0]).toEqual({
+      bump: "major",
+      event: "",
+      path: "",
+      message: 'events are now named by "action"',
+    });
+  });
+});

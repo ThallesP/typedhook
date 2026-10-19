@@ -58,9 +58,15 @@ function readEvent(name: string, webhook: unknown): RegistryEvent {
   return event;
 }
 
+// The names products give the field that names the event, tried first so a
+// lone `object: "event"` (Stripe) or `action: "created"` (GitHub) isn't picked.
+const DISCRIMINATOR_NAMES = ["event", "type", "event_type", "eventType", "kind"];
+
 /**
- * Prefers a property whose value is the event's own name, then any property
- * with a distinct string const in every payload.
+ * Prefers a property whose value is the event's own name, then a property
+ * with a distinct string const in every payload. With one event any const is
+ * distinct, so only the usual names count, or the next event could change
+ * which field names them.
  */
 function findDiscriminator(
   events: RegistryEvent[],
@@ -68,18 +74,28 @@ function findDiscriminator(
 ): Discriminator | null {
   const [first, ...rest] = events.map((event) => stringConsts(event.payload, schemas));
   if (!first) return null;
-  const candidates = [...first.keys()].flatMap((property) => {
-    const values = [first, ...rest].map((consts) => consts.get(property));
-    return values.every((value) => value !== undefined) ? [{ property, values }] : [];
-  });
+  const candidates = [...first.keys()]
+    .sort((a, b) => nameRank(a) - nameRank(b))
+    .flatMap((property) => {
+      const values = [first, ...rest].map((consts) => consts.get(property));
+      return values.every((value) => value !== undefined) ? [{ property, values }] : [];
+    });
+  const isDistinct = ({ property, values }: { property: string; values: string[] }) =>
+    new Set(values).size === values.length && (events.length > 1 || DISCRIMINATOR_NAMES.includes(property));
   const chosen =
     candidates.find(({ values }) => values.every((value, index) => value === events[index].name)) ??
-    candidates.find(({ values }) => new Set(values).size === values.length);
+    candidates.find(isDistinct);
   if (!chosen) return null;
   return {
     property: chosen.property,
     values: Object.fromEntries(events.map((event, index) => [event.name, chosen.values[index]])),
   };
+}
+
+/** Usual discriminator names first, in DISCRIMINATOR_NAMES order; the rest keep their order. */
+function nameRank(property: string): number {
+  const rank = DISCRIMINATOR_NAMES.indexOf(property);
+  return rank === -1 ? DISCRIMINATOR_NAMES.length : rank;
 }
 
 /** Properties pinned to one string, looking through a top-level `$ref` and `allOf`. */

@@ -116,3 +116,16 @@ describe("goPackageName", () => {
     ]);
   });
 });
+
+describe("readRegistryDocument with one event", () => {
+  const one = (properties: Record<string, unknown>) =>
+    readRegistryDocument("acme/x", document({ InvoicePaid: webhook({ type: "object", properties }) }));
+
+  test("takes a usual discriminator name, not another const", () => {
+    expect(one({ object: { const: "event" }, type: { const: "invoice.paid" } }).discriminator).toEqual({
+      property: "type",
+      values: { InvoicePaid: "invoice.paid" },
+    });
+    expect(one({ action: { const: "created" } }).discriminator).toBeNull();
+  });
+});

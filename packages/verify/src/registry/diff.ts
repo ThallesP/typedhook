@@ -1,7 +1,7 @@
 import { componentName } from "./component-ref";
 import { canonicalJson } from "./hash";
 import { isRecord } from "./is-record";
-import { type RegistryModel, readRegistryDocument } from "./model";
+import { type RegistryModel, eventKey, readRegistryDocument } from "./model";
 import { isStrictSemver } from "./registry-client";
 
 export type Bump = "major" | "minor" | "patch";
@@ -54,11 +54,25 @@ export function diffDocuments(before: unknown, after: unknown): DocumentDiff {
   for (const event of old.events) {
     if (!nextEvents.has(event.name)) changes.push({ bump: "major", event: event.name, path: "", message: "removed" });
   }
+  // Generated code is keyed by the discriminator's values and only routes when
+  // there is one, so changing either breaks consumers even with the same payloads.
+  const oldProperty = old.discriminator?.property ?? null;
+  const nextProperty = next.discriminator?.property ?? null;
+  if (oldProperty !== nextProperty) {
+    const message =
+      nextProperty === null
+        ? `events are no longer named by "${oldProperty}"`
+        : `events are now named by "${nextProperty}"${oldProperty === null ? "" : ` instead of "${oldProperty}"`}`;
+    changes.push({ bump: "major", event: "", path: "", message });
+  }
   for (const event of next.events) {
     const previous = oldEvents.get(event.name);
     if (previous === undefined) {
       changes.push({ bump: "minor", event: event.name, path: "", message: "added" });
       continue;
+    }
+    if (oldProperty === nextProperty && eventKey(old, previous) !== eventKey(next, event)) {
+      changes.push({ bump: "major", event: event.name, path: "", message: `is now keyed "${eventKey(next, event)}"` });
     }
     const compare = comparer(old, next, event.name, changes);
     compare(previous.payload, event.payload, "");

@@ -32107,19 +32107,25 @@ function readEvent(name, webhook) {
   if (typeof description === "string") event.description = description;
   return event;
 }
+var DISCRIMINATOR_NAMES = (/* unused pure expression or super */ null && (["event", "type", "event_type", "eventType", "kind"]));
 function findDiscriminator(events, schemas) {
   const [first, ...rest] = events.map((event) => stringConsts(event.payload, schemas));
   if (!first) return null;
-  const candidates = [...first.keys()].flatMap((property) => {
+  const candidates = [...first.keys()].sort((a, b) => nameRank(a) - nameRank(b)).flatMap((property) => {
     const values = [first, ...rest].map((consts) => consts.get(property));
     return values.every((value) => value !== void 0) ? [{ property, values }] : [];
   });
-  const chosen = candidates.find(({ values }) => values.every((value, index) => value === events[index].name)) ?? candidates.find(({ values }) => new Set(values).size === values.length);
+  const isDistinct = ({ property, values }) => new Set(values).size === values.length && (events.length > 1 || DISCRIMINATOR_NAMES.includes(property));
+  const chosen = candidates.find(({ values }) => values.every((value, index) => value === events[index].name)) ?? candidates.find(isDistinct);
   if (!chosen) return null;
   return {
     property: chosen.property,
     values: Object.fromEntries(events.map((event, index) => [event.name, chosen.values[index]]))
   };
+}
+function nameRank(property) {
+  const rank = DISCRIMINATOR_NAMES.indexOf(property);
+  return rank === -1 ? DISCRIMINATOR_NAMES.length : rank;
 }
 function stringConsts(schema, schemas) {
   const consts = /* @__PURE__ */ new Map();
@@ -33740,11 +33746,20 @@ function diffDocuments(before, after) {
   for (const event of old.events) {
     if (!nextEvents.has(event.name)) changes.push({ bump: "major", event: event.name, path: "", message: "removed" });
   }
+  const oldProperty = old.discriminator?.property ?? null;
+  const nextProperty = next.discriminator?.property ?? null;
+  if (oldProperty !== nextProperty) {
+    const message = nextProperty === null ? `events are no longer named by "${oldProperty}"` : `events are now named by "${nextProperty}"${oldProperty === null ? "" : ` instead of "${oldProperty}"`}`;
+    changes.push({ bump: "major", event: "", path: "", message });
+  }
   for (const event of next.events) {
     const previous = oldEvents.get(event.name);
     if (previous === void 0) {
       changes.push({ bump: "minor", event: event.name, path: "", message: "added" });
       continue;
+    }
+    if (oldProperty === nextProperty && eventKey(old, previous) !== eventKey(next, event)) {
+      changes.push({ bump: "major", event: event.name, path: "", message: `is now keyed "${eventKey(next, event)}"` });
     }
     const compare = comparer(old, next, event.name, changes);
     compare(previous.payload, event.payload, "");
