@@ -30,11 +30,13 @@ const ALLOWED_EVENTS = ["push", "release", "workflow_dispatch"];
 
 const encoder = new TextEncoder();
 
-// The pages have no scripts; everything they show comes from published documents.
+// The pages have no scripts of their own; everything they show comes from
+// published documents. The one script allowed is the Web Analytics beacon
+// Cloudflare injects into the zone's pages.
 const PAGE_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "content-security-policy":
-    "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; script-src https://static.cloudflareinsights.com; connect-src https://cloudflareinsights.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
   // A new publish shows up within a minute.
   "cache-control": "public, max-age=60",
