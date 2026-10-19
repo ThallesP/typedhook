@@ -96,7 +96,9 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
       };
     }
     const owners = new Map([[identity.repositoryOwner.toLowerCase(), identity.repositoryOwnerId]]);
-    return { ok: true, publisher: { owners, staleOrgs: [], publishedBy: `${identity.repository} (GitHub Actions)` } };
+    // A private repository's name could give away an unreleased product.
+    const source = identity.isPublicRepository ? identity.repository : identity.repositoryOwner;
+    return { ok: true, publisher: { owners, staleOrgs: [], publishedBy: `${source} (GitHub Actions)` } };
   }
 
   async function resolve(owner: string, name: string, range: string): Promise<Resolved> {
@@ -216,13 +218,18 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
       const result = await resolve(params.owner.toLowerCase(), params.name.toLowerCase(), params.range);
       if (!result.ok) return status(result.status, { error: result.error });
       const { row } = result;
-      const code = await generateCode(lang, {
-        registry: `${row.owner}/${row.name}`,
-        version: row.version,
-        hash: row.hash,
-        document: JSON.parse(row.document),
-      });
-      return new Response(code, { headers: { "content-type": "text/plain; charset=utf-8" } });
+      try {
+        const code = await generateCode(lang, {
+          registry: `${row.owner}/${row.name}`,
+          version: row.version,
+          hash: row.hash,
+          document: JSON.parse(row.document),
+        });
+        return new Response(code, { headers: { "content-type": "text/plain; charset=utf-8" } });
+      } catch (error) {
+        // Versions published before documents were checked can be unreadable.
+        return status(422, { error: error instanceof Error ? error.message : String(error) });
+      }
     })
     .post("/auth/device", async ({ status }) => {
       if (!githubDevice) return status(503, { error: "this registry can't sign in with GitHub" });
@@ -292,7 +299,12 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
     if (previous === undefined) return null;
     const row = await store.findVersion(owner, name, previous);
     if (!row) return null;
-    return diffDocuments(JSON.parse(row.document), document);
+    try {
+      return diffDocuments(JSON.parse(row.document), document);
+    } catch {
+      // A version published before documents were checked may be unreadable; it just gets no changelog.
+      return null;
+    }
   }
 }
 

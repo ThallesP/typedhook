@@ -29,6 +29,7 @@ export function signGithubToken({
 }: TokenOptions = {}) {
   return new SignJWT({
     repository: "acme/billing-service",
+    repository_visibility: "private",
     repository_owner: "acme",
     repository_owner_id: "1001",
     event_name: "push",

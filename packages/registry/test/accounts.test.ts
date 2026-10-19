@@ -319,3 +319,35 @@ describe("pages", () => {
     expect((await call("GET", "/auth/whoami")).status).toBe(401);
   });
 });
+
+describe("what anonymous readers see", () => {
+  test("a private repository's name isn't shown as the publisher", async () => {
+    const privateRepo = await signGithubToken({ claims: { repository_owner: "acme", repository_owner_id: "7" } });
+    await call("PUT", "/registries/acme/billing/versions/1.0.0", { token: privateRepo, body: document({}) });
+    const publicRepo = await signGithubToken({
+      claims: { repository_owner: "acme", repository_owner_id: "7", repository: "acme/sdk", repository_visibility: "public" },
+    });
+    await call("PUT", "/registries/acme/billing/versions/1.1.0", { token: publicRepo, body: document({}, "1.1.0") });
+    const { body } = await call("GET", "/registries/acme/billing");
+    expect(body.versions.map((version: { publishedBy: string }) => version.publishedBy)).toEqual([
+      "acme/sdk (GitHub Actions)",
+      "acme (GitHub Actions)",
+    ]);
+  });
+
+  test("versions stored before documents were checked don't break publishing or the code endpoint", async () => {
+    await db
+      .prepare("INSERT INTO owners (login, owner_id) VALUES ('acme', '7')")
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO versions (owner, name, version, hash, document) VALUES ('acme', 'legacy', '1.0.0', 'sha256-x', ?)",
+      )
+      .bind(JSON.stringify({ openapi: "3.1.0", info: { title: "x", version: "1.0.0" }, webhooks: { a: {} } }))
+      .run();
+    expect((await call("GET", "/registries/acme/legacy/latest/code/ts")).status).toBe(422);
+    const oidc = await signGithubToken({ claims: { repository_owner: "acme", repository_owner_id: "7" } });
+    const result = await call("PUT", "/registries/acme/legacy/versions/1.1.0", { token: oidc, body: document({}, "1.1.0") });
+    expect(result).toMatchObject({ status: 201, body: { bump: null } });
+  });
+});
