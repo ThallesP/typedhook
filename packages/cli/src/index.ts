@@ -52,7 +52,9 @@ Flags given to publish are saved in typedhook.json, so later it's just \`typedho
 
 Environment:
   TYPEDHOOK_REGISTRY_URL       Registry URL, over the one in typedhook.json
-  TYPEDHOOK_TOKEN              Token for publish outside GitHub Actions
+  TYPEDHOOK_TOKEN              A token from \`typedhook login\` (~/.config/typedhook), for publish
+                               outside GitHub Actions; valid 90 days, 7 for organizations,
+                               and revoked by that person's next login
   TYPEDHOOK_OIDC_TOKEN         GitHub OIDC token for publish; in GitHub Actions one is
                                requested (needs \`permissions: id-token: write\`)`;
 

@@ -13,7 +13,9 @@ The events can come from a module exporting zod, valibot or arktype schemas (`--
 
 The version is picked from what changed since the latest one: removed events or fields, fields that became optional and changed types are major, additions are minor, descriptions and examples are a patch. `--version` publishes a given version, and fails when it's lower than the changes need. `--dry-run` shows what would be published.
 
-It publishes as you; `--owner` picks a GitHub organization you belong to. The flags are saved in `typedhook.json`, so later it's just `npx typedhook publish`. In GitHub Actions it uses the job's OIDC token (grant `permissions: id-token: write`); elsewhere set `TYPEDHOOK_TOKEN`.
+It publishes as you; `--owner` picks a GitHub organization you belong to. The flags are saved in `typedhook.json`, so later it's just `npx typedhook publish`. In GitHub Actions it uses the job's OIDC token (grant `permissions: id-token: write`), with nothing to configure or rotate.
+
+Elsewhere, `TYPEDHOOK_TOKEN` takes the token `typedhook login` saved in `~/.config/typedhook/credentials.json`. It's that person's token: it stops working 90 days after the login, it only publishes for an organization within 7 days of the login (that's when org membership was last checked), and their next `typedhook login` revokes it. That suits a script you run yourself; for CI, prefer GitHub Actions.
 
 ## Receive
 

@@ -75,7 +75,9 @@ jobs:
       - run: npx typedhook@latest publish
 ```
 
-Unchanged events publish nothing, so running it on every push is fine. Other CI systems set `TYPEDHOOK_TOKEN`.
+Unchanged events publish nothing, so running it on every push is fine.
+
+Other CI systems can set `TYPEDHOOK_TOKEN` to a token from `typedhook login`, but it's personal: it expires 90 days after that login, publishes for an organization only within 7 days of it, and the person's next login revokes it. Tell the user that before setting it up, and suggest GitHub Actions if the repo is on GitHub.
 
 ## Report back
 

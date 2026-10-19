@@ -143,9 +143,10 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
         if (!auth.ok) return status(auth.status, { error: auth.error });
         const { owners, staleOrgs, publishedBy } = auth.publisher;
         const ownerId = owners.get(owner);
+        // Named, since the token may be running in CI on someone else's behalf.
         if (ownerId === undefined && staleOrgs.includes(owner)) {
           return status(403, {
-            error: `your membership in ${owner} was checked over a week ago; run \`typedhook login\` again to publish for it`,
+            error: `${publishedBy}'s membership in ${owner} was checked over a week ago; ${publishedBy} has to run \`typedhook login\` again to publish for it`,
           });
         }
         if (ownerId === undefined) {

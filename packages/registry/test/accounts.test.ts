@@ -136,7 +136,9 @@ describe("token and membership lifetimes", () => {
     await db.prepare("UPDATE memberships SET checked_at = datetime('now', '-8 days')").run();
     expect(await call("PUT", "/registries/acme/billing/versions/1.0.0", { token, body: document({}) })).toEqual({
       status: 403,
-      body: { error: "your membership in acme was checked over a week ago; run `typedhook login` again to publish for it" },
+      body: {
+        error: "thallesp's membership in acme was checked over a week ago; thallesp has to run `typedhook login` again to publish for it",
+      },
     });
     expect((await call("PUT", "/registries/thallesp/billing/versions/1.0.0", { token, body: document({}) })).status).toBe(201);
     expect((await call("GET", "/auth/whoami", { token })).body.owners).toEqual(["thallesp"]);
