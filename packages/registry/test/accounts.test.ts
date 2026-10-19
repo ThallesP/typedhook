@@ -98,7 +98,7 @@ describe("typedhook login", () => {
     expect(token).toMatch(/^th_[A-Za-z0-9_-]{43}$/);
     expect(await call("GET", "/auth/whoami", { token })).toEqual({
       status: 200,
-      body: { login: "thallesp", owners: ["thallesp", "acme"] },
+      body: { login: "thallesp", owners: ["thallesp", "acme"], staleOrgs: [] },
     });
   });
 
@@ -141,7 +141,11 @@ describe("token and membership lifetimes", () => {
       },
     });
     expect((await call("PUT", "/registries/thallesp/billing/versions/1.0.0", { token, body: document({}) })).status).toBe(201);
-    expect((await call("GET", "/auth/whoami", { token })).body.owners).toEqual(["thallesp"]);
+    expect((await call("GET", "/auth/whoami", { token })).body).toEqual({
+      login: "thallesp",
+      owners: ["thallesp"],
+      staleOrgs: ["acme"],
+    });
   });
 });
 

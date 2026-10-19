@@ -11,7 +11,8 @@ export type DeviceCode = {
 
 export type DevicePoll = { status: "pending"; interval: number } | { status: "done"; token: string; login: string; owners: string[] };
 
-export type Identity = { login: string; owners: string[] };
+/** `staleOrgs` were checked at a login over a week ago, so publishing for them needs a new login. */
+export type Identity = { login: string; owners: string[]; staleOrgs: string[] };
 
 export type RegistryListing = {
   owner: string;
@@ -71,7 +72,8 @@ export function registryApi(registryUrl: string, fetchImpl: FetchImpl = fetch) {
       if (!isRecord(body) || typeof body.login !== "string" || !isStringArray(body.owners)) {
         throw new Error("registry sent an unexpected whoami response");
       }
-      return { login: body.login, owners: body.owners };
+      const staleOrgs = isStringArray(body.staleOrgs) ? body.staleOrgs : [];
+      return { login: body.login, owners: body.owners, staleOrgs };
     },
 
     async revoke(token: string): Promise<void> {

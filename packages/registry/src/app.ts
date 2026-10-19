@@ -259,8 +259,8 @@ export function createApp({ store, verifyGithubToken, githubDevice, adapter }: A
       const token = bearerToken(request.headers.get("authorization"));
       const user = token?.startsWith("th_") ? await store.findToken(await tokenHash(token)) : null;
       if (!user) return status(401, { error: "not signed in, run `typedhook login`" });
-      const { owners } = await publisherFor(user);
-      return { login: user.login, owners: [...owners.keys()] };
+      const { owners, staleOrgs } = await publisherFor(user);
+      return { login: user.login, owners: [...owners.keys()], staleOrgs };
     })
     .delete("/auth/token", async ({ request, status }) => {
       const token = bearerToken(request.headers.get("authorization"));

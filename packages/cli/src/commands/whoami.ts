@@ -15,6 +15,7 @@ export async function whoami({
   const url = registryUrl((await findProject(cwd))?.config, env);
   const token = env.TYPEDHOOK_TOKEN || (await readCredentials(url, env))?.token;
   if (!token) throw new Error("not signed in, run `npx typedhook login`");
-  const { login, owners } = await registryApi(url, fetchImpl).whoami(token);
+  const { login, owners, staleOrgs } = await registryApi(url, fetchImpl).whoami(token);
   log(`${login} on ${url}; you can publish as ${owners.join(", ")}`);
+  if (staleOrgs.length > 0) log(`run \`typedhook login\` again to publish for ${staleOrgs.join(", ")}`);
 }
