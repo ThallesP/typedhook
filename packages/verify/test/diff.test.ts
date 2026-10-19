@@ -370,3 +370,25 @@ describe("diffDocuments and a lone object with a pinned value", () => {
     ]);
   });
 });
+
+describe("diffDocuments and a renamed union discriminator", () => {
+  test("kind → type on every variant is major, with the dropped field still reported", () => {
+    const before = document({
+      a: z.object({
+        item: z.union([
+          z.object({ kind: z.literal("paid"), amount: z.number() }),
+          z.object({ kind: z.literal("voided"), reason: z.string() }),
+        ]),
+      }),
+    });
+    const after = document({
+      a: z.object({
+        item: z.union([z.object({ type: z.literal("paid") }), z.object({ type: z.literal("voided"), reason: z.string() })]),
+      }),
+    });
+    const { bump, changes } = diffDocuments(before, after);
+    expect(bump).toBe("major");
+    expect(changes).toContainEqual({ bump: "major", event: "a", path: "data.item.kind", message: "was removed" });
+    expect(changes).toContainEqual({ bump: "major", event: "a", path: "data.item.amount", message: "was removed" });
+  });
+});

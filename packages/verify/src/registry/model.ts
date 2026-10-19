@@ -60,7 +60,7 @@ function readEvent(name: string, webhook: unknown): RegistryEvent {
 
 // The names products give the field that names the event, tried first so a
 // lone `object: "event"` (Stripe) or `action: "created"` (GitHub) isn't picked.
-const DISCRIMINATOR_NAMES = ["event", "type", "event_type", "eventType", "kind"];
+export const DISCRIMINATOR_NAMES = ["event", "type", "event_type", "eventType", "kind"];
 
 /**
  * Prefers a property whose value is the event's own name, then a property
@@ -93,7 +93,7 @@ function findDiscriminator(
 }
 
 /** Usual discriminator names first, in DISCRIMINATOR_NAMES order; the rest keep their order. */
-function nameRank(property: string): number {
+export function nameRank(property: string): number {
   const rank = DISCRIMINATOR_NAMES.indexOf(property);
   return rank === -1 ? DISCRIMINATOR_NAMES.length : rank;
 }

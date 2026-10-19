@@ -1,7 +1,7 @@
 import { componentName } from "./component-ref";
 import { canonicalJson } from "./hash";
 import { isRecord } from "./is-record";
-import { type RegistryModel, eventKey, readRegistryDocument } from "./model";
+import { type RegistryModel, eventKey, nameRank, readRegistryDocument } from "./model";
 import { isStrictSemver } from "./registry-client";
 
 export type Bump = "major" | "minor" | "patch";
@@ -44,6 +44,9 @@ type Shape =
   | ObjectShape;
 
 type Side = { schemas: Record<string, unknown> };
+
+/** Names a union object by its discriminator's value, or null when it doesn't pin it. */
+type VariantPairing = { tagOf: (side: Side, shape: Shape) => string | null };
 
 const BUMP_RANK: Record<Bump, number> = { patch: 1, minor: 2, major: 3 };
 
@@ -160,18 +163,13 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
       change("major", path, "is no longer typed");
       return;
     }
-    const oldTags = variantTags(old, oldMembers);
-    const newTags = variantTags(next, newMembers);
-    // Pairing by tag is for unions; one object on each side is the same object
-    // even when a pinned value changed (`api_version`), and its fields compare.
-    const isUnion = oldTags.size > 1 || newTags.size > 1;
-    const isTaggedUnion = isUnion && [...oldTags.values()].some((tags) => tags.length > 0);
+    const variants = variantPairing(oldMembers, newMembers);
     const matched = new Set<Shape>();
     for (const shape of newMembers) {
-      const counterpart = counterpartOf(shape, oldMembers, matched, newTags.get(shape) ?? [], isTaggedUnion, oldTags);
+      const counterpart = counterpartOf(shape, oldMembers, matched, variants);
       if (counterpart === undefined) {
-        const [tag] = newTags.get(shape) ?? [];
-        if (tag !== undefined && isTaggedUnion) change("minor", path, `has a new variant ${tag}`);
+        const tag = variants === null ? null : variants.tagOf(next, shape);
+        if (tag !== null) change("minor", path, `has a new variant ${tag}`);
         else change(...widened(shape, oldMembers, path));
         continue;
       }
@@ -182,33 +180,54 @@ function comparer(old: RegistryModel, next: RegistryModel, event: string, change
     }
     for (const shape of oldMembers) {
       if (matched.has(shape)) continue;
-      const [tag] = oldTags.get(shape) ?? [];
-      change("minor", path, tag === undefined ? `can no longer be ${describe(shape)}` : `no longer has the variant ${tag}`);
+      const tag = variants === null ? null : variants.tagOf(old, shape);
+      change("minor", path, tag === null ? `can no longer be ${describe(shape)}` : `no longer has the variant ${tag}`);
     }
   }
 
   /**
+   * How a union's objects pair up: by the value of the property both sides
+   * discriminate on. Null when there's no union, or when the discriminator
+   * differs between the sides; objects then pair by position, so a renamed
+   * discriminator shows as a removed property (major).
+   */
+  function variantPairing(oldMembers: Shape[], newMembers: Shape[]): VariantPairing | null {
+    const oldObjects = oldMembers.filter(isObjectShape);
+    const newObjects = newMembers.filter(isObjectShape);
+    if (oldObjects.length < 2 && newObjects.length < 2) return null;
+    // A lone object on one side follows the other side's discriminator if it pins it.
+    const property = unionDiscriminator(old, oldObjects) ?? unionDiscriminator(next, newObjects);
+    if (property === null) return null;
+    const pinsIt = (side: Side, objects: ObjectShape[]) =>
+      objects.length === 1 ? pinnedValues(side, objects[0]).has(property) : unionDiscriminator(side, objects) === property;
+    if (!pinsIt(old, oldObjects) || !pinsIt(next, newObjects)) return null;
+    return {
+      tagOf(side, shape) {
+        const value = shape.kind === "object" ? pinnedValues(side, shape).get(property) : undefined;
+        return value === undefined ? null : `${property}=${value}`;
+      },
+    };
+  }
+
+  /**
    * The old member a new one is compared with, or undefined when it's new.
-   * Objects in a tagged union pair up only by a tag they share; untagged
-   * objects pair by position among the ones not paired yet. Other kinds
-   * prefer an unpaired member, but can share one, so `integer | number`
-   * against `number` is still no change.
+   * Union objects pair by their discriminator's value, else by position among
+   * the ones not paired yet. Other kinds prefer an unpaired member, but can
+   * share one, so `integer | number` against `number` is still no change.
    */
   function counterpartOf(
     shape: Shape,
     oldMembers: Shape[],
     matched: Set<Shape>,
-    tags: string[],
-    isTaggedUnion: boolean,
-    oldTags: Map<Shape, string[]>,
+    variants: VariantPairing | null,
   ): Shape | undefined {
     const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
     const unmatched = candidates.filter((candidate) => !matched.has(candidate));
     if (shape.kind !== "object") return unmatched[0] ?? candidates[0];
-    if (tags.length > 0 && isTaggedUnion) {
-      return unmatched.find((candidate) => (oldTags.get(candidate) ?? []).some((tag) => tags.includes(tag)));
-    }
-    return unmatched[0];
+    if (variants === null) return unmatched[0];
+    const tag = variants.tagOf(next, shape);
+    if (tag === null) return undefined;
+    return unmatched.find((candidate) => variants.tagOf(old, candidate) === tag);
   }
 
   function compareObjects(before: ObjectShape, after: ObjectShape, path: string): void {
@@ -348,25 +367,33 @@ function objectShape(schema: Record<string, unknown>): ObjectShape {
   };
 }
 
-/**
- * Each object member's tags that no other member carries: a property pinned
- * to a value every variant shares (`object: "line_item"`) tells none apart.
- * A lone object keeps all its tags.
- */
-function variantTags(side: Side, members: Shape[]): Map<Shape, string[]> {
-  const tagsByMember = new Map<Shape, string[]>();
-  for (const member of members) if (member.kind === "object") tagsByMember.set(member, objectTags(side, member));
-  const counts = new Map<string, number>();
-  for (const tags of tagsByMember.values()) for (const tag of tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  return new Map([...tagsByMember].map(([member, tags]) => [member, tags.filter((tag) => counts.get(tag) === 1)]));
+function isObjectShape(shape: Shape): shape is ObjectShape {
+  return shape.kind === "object";
 }
 
-/** `property=value` for each property pinned to one literal. */
-function objectTags(side: Side, shape: ObjectShape): string[] {
-  return [...shape.properties].flatMap(([key, property]) => {
+/**
+ * The property a union's objects are told apart by: pinned to a literal in
+ * every one, with a different value in each. Usual names win, like for events.
+ */
+function unionDiscriminator(side: Side, objects: ObjectShape[]): string | null {
+  if (objects.length < 2) return null;
+  const pinned = objects.map((object) => pinnedValues(side, object));
+  const properties = [...new Set(pinned.flatMap((values) => [...values.keys()]))].filter(
+    (property) =>
+      pinned.every((values) => values.has(property)) &&
+      new Set(pinned.map((values) => values.get(property))).size === objects.length,
+  );
+  return properties.sort((a, b) => nameRank(a) - nameRank(b))[0] ?? null;
+}
+
+/** Each property pinned to one literal, with that literal as JSON. */
+function pinnedValues(side: Side, shape: ObjectShape): Map<string, string> {
+  const pinned = new Map<string, string>();
+  for (const [key, property] of shape.properties) {
     const [only, ...others] = shapes(side, property.schema);
-    return only?.kind === "literal" && others.length === 0 ? [`${key}=${only.value}`] : [];
-  });
+    if (only?.kind === "literal" && others.length === 0) pinned.set(key, only.value);
+  }
+  return pinned;
 }
 
 /** allOf of one part is that part, allOf of objects merges into one object, anything else is compared loosely. */
