@@ -187,6 +187,10 @@ TYPEDHOOK_TEST_MONGO_URL="mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnec
 
 CI starts all three; see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
+## Community
+
+Questions, ideas or just want to talk? Come say hi on [Discord](https://discord.gg/pF5wfWZMSH).
+
 ## License
 
 MIT
