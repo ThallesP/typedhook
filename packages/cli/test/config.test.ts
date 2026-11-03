@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_REGISTRY_URL } from "@typedhook/verify/registry";
 import {
-  findPackageRoot,
+  findProjectRoot,
   findProject,
   readConfig,
   readLock,
@@ -30,7 +30,7 @@ describe("findProject", () => {
     await writeFile(join(dir, "typedhook.json"), '{ "registries": { "acme/billing": "^1.0.0" } }');
     expect(await findProject(nested)).toEqual({
       root: dir,
-      config: { out: "src/webhooks", registries: { "acme/billing": "^1.0.0" } },
+      config: { registries: { "acme/billing": "^1.0.0" } },
     });
   });
 
@@ -39,12 +39,15 @@ describe("findProject", () => {
   });
 });
 
-describe("findPackageRoot", () => {
-  test("is the nearest directory with a package.json", async () => {
+describe("findProjectRoot", () => {
+  test("is the nearest directory with the language's project file", async () => {
     const nested = join(dir, "src");
     await mkdir(nested);
     await writeFile(join(dir, "package.json"), "{}");
-    expect(await findPackageRoot(nested)).toBe(dir);
+    expect(await findProjectRoot(nested, "typescript")).toBe(dir);
+    expect(await findProjectRoot(nested, "go")).toBe(nested);
+    await writeFile(join(nested, "pyproject.toml"), "");
+    expect(await findProjectRoot(nested, "python")).toBe(nested);
   });
 });
 

@@ -16,12 +16,42 @@ export type OpenAPIDocument = {
  * that @typedhook/sdk sends.
  */
 export function toOpenAPI(events: Record<string, unknown>, info: OpenAPIInfo): OpenAPIDocument {
+  const schemas = new Map(Object.keys(events).map((name) => [name, toJsonSchema(name, events[name])]));
+  return buildDocument(schemas, info, (name, data) => {
+    // `.describe()` on an event's schema describes the event, so it moves onto
+    // the operation instead of showing on both the event and its `data`.
+    if (!isRecord(data) || typeof data.description !== "string") return { body: envelope(name, data) };
+    const { description, ...rest } = data;
+    return { body: envelope(name, rest), description };
+  });
+}
+
+/**
+ * One webhook per event from plain JSON Schemas of the whole request body, for
+ * senders that don't use @typedhook/sdk. A Map, since event names come from
+ * file names and `__proto__` is a valid one.
+ */
+export function schemasToOpenAPI(payloads: Map<string, unknown>, info: OpenAPIInfo): OpenAPIDocument {
+  const schemas = new Map(
+    [...payloads].map(([name, schema]): [string, Record<string, unknown>] => {
+      if (!isRecord(schema)) throw new Error(`event "${name}": its JSON Schema is not an object`);
+      return [name, schema];
+    }),
+  );
+  return buildDocument(schemas, info, (_name, payload) => ({ body: payload }));
+}
+
+function buildDocument(
+  jsonSchemas: Map<string, Record<string, unknown>>,
+  info: OpenAPIInfo,
+  wrap: (name: string, data: unknown) => { body: unknown; description?: string },
+): OpenAPIDocument {
   // Maps until the end: assigning a `__proto__` key on an object sets its prototype instead.
   const webhooks = new Map<string, unknown>();
   const schemas = new Map<string, unknown>();
   const owners = new Map<string, string>();
-  for (const name of Object.keys(events).sort()) {
-    const hoisted = hoistDefs(name, toJsonSchema(name, events[name]));
+  for (const [name, jsonSchema] of [...jsonSchemas].sort(byName)) {
+    const hoisted = hoistDefs(name, jsonSchema);
     for (const [key, schema] of hoisted.schemas) {
       // Event `a` with def `b.c` and event `a.b` with def `c` both hoist to `a.b.c`.
       const owner = owners.get(key);
@@ -33,21 +63,25 @@ export function toOpenAPI(events: Record<string, unknown>, info: OpenAPIInfo): O
       owners.set(key, name);
       schemas.set(key, schema);
     }
-    webhooks.set(name, {
-      post: {
-        operationId: name,
-        requestBody: {
-          required: true,
-          content: { "application/json": { schema: envelope(name, hoisted.data) } },
-        },
-        responses: { "2XX": { description: "Return any 2XX status to acknowledge the event" } },
-      },
-    });
+    const { body, description } = wrap(name, hoisted.data);
+    const operation: Record<string, unknown> = {
+      operationId: name,
+      requestBody: { required: true, content: { "application/json": { schema: body } } },
+      responses: { "2XX": { description: "Return any 2XX status to acknowledge the event" } },
+    };
+    if (description !== undefined) operation.description = description;
+    webhooks.set(name, { post: operation });
   }
 
   const document: OpenAPIDocument = { openapi: "3.1.0", info, webhooks: Object.fromEntries(webhooks) };
   if (schemas.size > 0) document.components = { schemas: Object.fromEntries(schemas) };
   return document;
+}
+
+/** UTF-16 order like Array.prototype.sort, not localeCompare, so the document is the same on every machine. */
+function byName([a]: [string, unknown], [b]: [string, unknown]): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 function toJsonSchema(name: string, schema: unknown): Record<string, unknown> {

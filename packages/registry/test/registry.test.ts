@@ -9,8 +9,15 @@ import { AUDIENCE, type TokenOptions, keySet, signGithubToken as sign } from "./
 
 const foreign = await generateKeyPair("RS256");
 
+/** A document with one webhook per entry, each value being its payload schema. */
 function openapi(events: Record<string, unknown> = { "order.paid": {} }) {
-  return { openapi: "3.1.0", info: { title: "Acme", version: "1.0.0" }, webhooks: events };
+  const webhooks = Object.fromEntries(
+    Object.entries(events).map(([name, schema]) => [
+      name,
+      { post: { requestBody: { content: { "application/json": { schema } } } } },
+    ]),
+  );
+  return { openapi: "3.1.0", info: { title: "Acme", version: "1.0.0" }, webhooks };
 }
 
 let app: ReturnType<typeof createApp>;
@@ -19,6 +26,7 @@ beforeEach(() => {
   app = createApp({
     store: d1Store(memoryD1()),
     verifyGithubToken: githubVerifier({ audience: AUDIENCE, keySet }),
+    githubDevice: null,
   });
 });
 
@@ -71,6 +79,8 @@ describe("PUT /registries/:owner/:name/versions/:version", () => {
       status: "created",
       version: "1.0.0",
       hash: await hashDocument(openapi()),
+      bump: null,
+      changes: [],
     });
     expect(result.body).toMatchObject({ hash: expect.stringMatching(/^sha256-[A-Za-z0-9+/]+=*$/) });
   });
@@ -78,7 +88,7 @@ describe("PUT /registries/:owner/:name/versions/:version", () => {
   test("same version with the same document is unchanged, whatever the key order", async () => {
     await push("acme/billing/versions/1.0.0", openapi());
     const reordered = {
-      webhooks: { "order.paid": {} },
+      webhooks: openapi().webhooks,
       info: { version: "1.0.0", title: "Acme" },
       openapi: "3.1.0",
     };
@@ -194,6 +204,7 @@ describe("PUT /registries/:owner/:name/versions/:version", () => {
     ["no webhooks object", { openapi: "3.1.0", paths: {} }],
     ["webhooks as an array", { openapi: "3.1.0", webhooks: [] }],
     ["a JSON array", [openapi()]],
+    ["a webhook without a JSON body", { ...openapi(), webhooks: { "order.paid": { post: {} } } }],
   ])("rejects a document with %s", async (_, document) => {
     const result = await push("acme/billing/versions/1.0.0", document);
     expect(result.status).toBe(400);
@@ -251,10 +262,10 @@ describe("PUT /registries/:owner/:name/versions/:version", () => {
   });
 
   test("accepts documents nested exactly 256 levels deep", async () => {
-    // The document and webhooks objects are the first two levels.
+    // The document, webhooks and the webhook's post/requestBody/content/media type are the first seven levels.
     const raw = JSON.stringify(openapi({ deep: "X" })).replace(
       '"X"',
-      `${"[".repeat(254)}${"]".repeat(254)}`,
+      `${"[".repeat(249)}${"]".repeat(249)}`,
     );
     const result = await push("acme/billing/versions/1.0.0", null, { raw });
     expect(result.status).toBe(201);
@@ -264,6 +275,7 @@ describe("PUT /registries/:owner/:name/versions/:version", () => {
     app = createApp({
       store: d1Store(memoryD1()),
       verifyGithubToken: githubVerifier({ audience: `${AUDIENCE}/`, keySet }),
+      githubDevice: null,
     });
     const result = await push("acme/billing/versions/1.0.0", openapi());
     expect(result.status).toBe(201);
@@ -275,6 +287,7 @@ describe("PUT /registries/:owner/:name/versions/:version", () => {
     app = createApp({
       store: { ...store, claimOwner: () => Promise.reject(failure) },
       verifyGithubToken: githubVerifier({ audience: AUDIENCE, keySet }),
+      githubDevice: null,
     });
     const logged = spyOn(console, "error").mockImplementation(() => {});
     const result = await push("acme/billing/versions/1.0.0", openapi());
@@ -325,13 +338,13 @@ describe("GET /registries/:owner/:name/:range", () => {
 
   test("returns the document in the sender's property order", async () => {
     const reordered = {
-      webhooks: { "order.paid": { post: {} } },
+      webhooks: openapi().webhooks,
       info: { version: "1.0.0", title: "Acme" },
       openapi: "3.1.0",
     };
     await push("acme/billing/versions/3.0.0", reordered);
     const result = await resolve("acme/billing/3.0.0");
-    const hash = await hashDocument(openapi({ "order.paid": { post: {} } }));
+    const hash = await hashDocument(openapi());
     expect(JSON.stringify(result.body)).toBe(
       JSON.stringify({ version: "3.0.0", hash, document: reordered }),
     );

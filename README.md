@@ -1,9 +1,88 @@
 # typedhook
 
-Type-safe webhooks for TypeScript. Uses the [Standard Webhooks](https://www.standardwebhooks.com/) format.
+A registry for webhook events. You publish the events your product sends; whoever receives them gets typed code in TypeScript, Python or Go, with signature verification built in. Uses the [Standard Webhooks](https://www.standardwebhooks.com/) format.
+
+Browse it at [registry.typedhook.dev](https://registry.typedhook.dev).
+
+## Publish your webhooks
+
+```sh
+npx typedhook login      # prints a code to enter on github.com
+npx typedhook publish --schemas events/
+```
+
+`publish` builds an OpenAPI 3.1 document from whatever you have:
+
+| You have | Flag |
+| --- | --- |
+| zod, valibot or arktype schemas (the map you pass to `@typedhook/sdk`) | `--events src/webhooks/events.ts` |
+| An OpenAPI 3.1 document with a `webhooks` section | `--openapi openapi.yaml` |
+| One JSON Schema per event (`events/invoice.paid.json`) | `--schemas events/` |
+| Only example payloads (a file, or a folder of samples, per event) | `--examples fixtures/webhooks/` |
+
+It publishes to `<your GitHub login>/<package name>`; `--owner` publishes for an organization you belong to, `--name` picks another name. The flags are saved to `typedhook.json`, so afterwards it's just `npx typedhook publish`.
+
+You don't pick versions. `publish` compares your events with the latest version and bumps the major for anything a consumer could rely on that's gone (an event, a field, a field that became optional or changed type), the minor for additions, and the patch for descriptions and examples. Nothing changed, nothing published.
+
+From GitHub Actions it needs no secret, only `permissions: id-token: write`:
+
+```yaml
+- run: npx typedhook@latest publish
+```
+
+### With an agent
+
+```sh
+npx skills add ThallesP/typedhook
+```
+
+Then ask your agent to publish your webhooks to typedhook. The `typedhook-publish` skill finds the events your code sends, writes their schemas when there's nothing to publish from, and runs `publish`. `typedhook-receive` does the other side.
+
+## Receive webhooks
+
+```sh
+npx typedhook search billing
+npx typedhook add acme/billing                 # TypeScript
+npx typedhook add acme/billing --lang python
+npx typedhook add acme/billing --lang go
+```
+
+`add` writes `typedhook.json`, `typedhook.lock` and the generated code. In a JS project it also adds `typedhook pull` to `postinstall`, so the code is regenerated from the lock on every install. Run `typedhook pull --check` in CI for the other languages. Without Node, `curl https://registry.typedhook.dev/registries/acme/billing/latest/code/python` returns the same file.
+
+```ts
+import { createBillingWebhooks } from "./webhooks/billing";
+
+const billing = createBillingWebhooks(process.env.ACME_WEBHOOK_SECRET!);
+
+// Next.js, Hono, Remix, Workers, Bun
+export const POST = billing.handler({
+  "invoice.paid": async ({ data }) => {
+    data.amountCents; // number
+  },
+});
+```
+
+`handler` answers 400 when the signature doesn't verify, runs the handler for the event and answers 204. A handler that throws makes it answer 500, so the sender retries. For Express and other frameworks that hand you a raw body, use `billing.verifyPayload(rawBody, headers)`.
+
+### Your own SDK
+
+`typedhook sdk acme/billing --lang typescript --out sdk/typescript` writes a package you publish under your own name: the generated code, a manifest and a README listing every event. `--lang python` and `--lang go` write a `pyproject.toml` or a `go.mod` package instead.
+
+### MCP
+
+The registry is also a remote MCP server, so agents can look up any product's events and payloads:
+
+```sh
+claude mcp add --transport http typedhook https://registry.typedhook.dev/mcp
+```
+
+## Send webhooks
+
+The rest of typedhook sends and verifies webhooks in TypeScript.
 
 | Package | Use it to |
 | --- | --- |
+| `typedhook` | Publish and pull events (the CLI above) |
 | `@typedhook/sdk` | Send webhooks |
 | `@typedhook/verify` | Verify webhooks you receive (zero deps) |
 | `@typedhook/prisma` | Store the outbox in Postgres with Prisma |
@@ -15,7 +94,7 @@ Type-safe webhooks for TypeScript. Uses the [Standard Webhooks](https://www.stan
 | `@typedhook/knex` | Store the outbox with Knex (Postgres, MySQL, SQLite) |
 | `@typedhook/mongodb` | Store the outbox in MongoDB |
 
-## Sending
+### Sending
 
 ```sh
 npm install @typedhook/sdk
@@ -47,7 +126,7 @@ if (!result.ok) console.error(result.error);
 - By default webhooks are sent right away and retried in memory (`direct({ maxAttempts: 5 })`). Retries are lost if the process crashes. Use the outbox if that matters.
 - Redirects are not followed. A 3xx counts as a failed delivery.
 
-## Outbox
+### Outbox
 
 The outbox saves events in your database, in the same transaction as your data. A worker sends them later and retries until they succeed.
 
@@ -86,7 +165,7 @@ If the database insert fails, `send()` throws, so your transaction rolls back.
 
 See [`packages/prisma`](packages/prisma/README.md) for the Prisma schema and options.
 
-### Other databases
+#### Other databases
 
 Each adapter's README has the schema to copy, how to pass your transaction to `wh.with()`, and its options:
 
@@ -115,7 +194,7 @@ interface OutboxAdapter<Tx = unknown> {
 
 If you run more than one worker, `claim` must mark the rows it returns (for example, push `next_attempt_at` forward) so other workers skip them. A lock alone is released before delivery happens. `memoryAdapter()` is included for tests.
 
-## Verifying
+### Verifying
 
 ```sh
 npm install @typedhook/verify
@@ -149,9 +228,9 @@ app.post("/hook", express.raw({ type: "application/json" }), async (req, res) =>
 
 Secrets that start with `whsec_` are base64-decoded. Any other secret is used as plain text.
 
-### Typed payloads
+#### Typed payloads
 
-Export the event types from the sender and import them as types in the consumer:
+Publish your events to the registry and consumers get their types with `typedhook add` (see [Receive webhooks](#receive-webhooks)). Without the registry, export the event types from the sender and import them as types in the consumer:
 
 ```ts
 // sender

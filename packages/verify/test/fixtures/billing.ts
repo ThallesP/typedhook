@@ -3,7 +3,7 @@
  * the generator: `bun packages/verify/test/fixtures/billing.ts`
  */
 import { z } from "zod";
-import { generateTypes } from "../../src/registry/generate";
+import { generateCode } from "../../src/registry/generate";
 import { hashDocument } from "../../src/registry/hash";
 import { toOpenAPI } from "../../src/registry/openapi";
 
@@ -49,7 +49,7 @@ export const billingEvents = {
 export const billingDocument = toOpenAPI(billingEvents, { title: "Billing", version: "1.0.0" });
 
 export async function billingTypes(): Promise<string> {
-  return generateTypes({
+  return generateCode("typescript", {
     registry: "acme/billing",
     version: "1.0.0",
     hash: await hashDocument(billingDocument),

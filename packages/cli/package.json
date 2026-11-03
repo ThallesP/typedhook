@@ -29,7 +29,9 @@
     "build": "tsup src/index.ts --format esm --clean"
   },
   "dependencies": {
-    "@typedhook/verify": "workspace:*"
+    "@typedhook/verify": "workspace:*",
+    "jiti": "^2.7.0",
+    "yaml": "^2.9.1"
   },
   "publishConfig": {
     "access": "public"

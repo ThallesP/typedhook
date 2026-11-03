@@ -31919,24 +31919,6 @@ var promises_ = __nccwpck_require__(1455);
 // EXTERNAL MODULE: external "node:path"
 var external_node_path_ = __nccwpck_require__(6760);
 ;// CONCATENATED MODULE: ../verify/dist/registry.js
-// src/registry/component-ref.ts
-var COMPONENT_REF = "#/components/schemas/";
-function componentRef(name) {
-  return `${COMPONENT_REF}${escapePointerToken(name)}`;
-}
-function componentName(ref) {
-  if (!ref.startsWith(COMPONENT_REF)) return null;
-  const token = ref.slice(COMPONENT_REF.length);
-  if (token.includes("/")) return null;
-  return unescapePointerToken(token);
-}
-function escapePointerToken(token) {
-  return token.replaceAll("~", "~0").replaceAll("/", "~1");
-}
-function unescapePointerToken(token) {
-  return token.replaceAll("~1", "/").replaceAll("~0", "~");
-}
-
 // src/registry/is-record.ts
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -32013,7 +31995,10 @@ function objectType(schema, depth, refName) {
   const pad = "  ".repeat(depth + 1);
   const lines = keys.map((key) => {
     const optional = required.includes(key) ? "" : "?";
-    return `${pad}${propertyKey(key)}${optional}: ${convert(properties[key], depth + 1, refName).text};`;
+    const line = `${pad}${propertyKey(key)}${optional}: ${convert(properties[key], depth + 1, refName).text};`;
+    const description = getDescription(properties[key]);
+    return description === null ? line : `${jsDoc(description, pad)}
+${line}`;
   });
   if (extra !== void 0 && extra !== false) lines.push(`${pad}[key: string]: unknown;`);
   return single(`{
@@ -32043,6 +32028,16 @@ function arrayType(schema, depth, refName) {
 function arrayOf(item) {
   return item.kind === "single" ? `${item.text}[]` : `(${item.text})[]`;
 }
+function getDescription(schema) {
+  if (!isRecord(schema) || typeof schema.description !== "string") return null;
+  const description = schema.description.trim();
+  return description === "" ? null : description;
+}
+function jsDoc(text, pad) {
+  const lines = text.replaceAll("*/", "*\\/").split(/\r?\n/);
+  if (lines.length === 1) return `${pad}/** ${lines[0]} */`;
+  return [`${pad}/**`, ...lines.map((line) => `${pad} *${line ? ` ${line}` : ""}`), `${pad} */`].join("\n");
+}
 function propertyKey(key) {
   return /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key);
 }
@@ -32069,6 +32064,255 @@ function tsType(text, kind) {
     throw new Error(`a schema generates over ${limit} characters of types`);
   }
   return { text, kind };
+}
+
+// src/registry/component-ref.ts
+var COMPONENT_REF = "#/components/schemas/";
+function componentRef(name) {
+  return `${COMPONENT_REF}${escapePointerToken(name)}`;
+}
+function componentName(ref) {
+  if (!ref.startsWith(COMPONENT_REF)) return null;
+  const token = ref.slice(COMPONENT_REF.length);
+  if (token.includes("/")) return null;
+  return unescapePointerToken(token);
+}
+function escapePointerToken(token) {
+  return token.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+function unescapePointerToken(token) {
+  return token.replaceAll("~1", "/").replaceAll("~0", "~");
+}
+
+// src/registry/model.ts
+function readRegistryDocument(label, document) {
+  if (!isRecord(document) || !isRecord(document.webhooks)) {
+    throw new Error(`${label}: the document has no webhooks object`);
+  }
+  const { webhooks } = document;
+  const schemas = isRecord(document.components) && isRecord(document.components.schemas) ? document.components.schemas : {};
+  const events = Object.keys(webhooks).sort().map((name) => readEvent(name, webhooks[name]));
+  return { events, schemas, discriminator: findDiscriminator(events, schemas) };
+}
+function readEvent(name, webhook) {
+  const operation = isRecord(webhook) ? webhook.post : void 0;
+  const payload = getPath(operation, ["requestBody", "content", "application/json", "schema"]);
+  if (payload === void 0) throw new Error(`webhook "${name}" has no application/json request body`);
+  const description = [
+    getPath(operation, ["summary"]),
+    getPath(operation, ["description"]),
+    getPath(payload, ["description"])
+  ].find((text) => typeof text === "string" && text !== "");
+  const event = { name, payload };
+  if (typeof description === "string") event.description = description;
+  return event;
+}
+var DISCRIMINATOR_NAMES = (/* unused pure expression or super */ null && (["event", "type", "event_type", "eventType", "kind"]));
+function findDiscriminator(events, schemas) {
+  const [first, ...rest] = events.map((event) => stringConsts(event.payload, schemas));
+  if (!first) return null;
+  const candidates = [...first.keys()].sort((a, b) => nameRank(a) - nameRank(b)).flatMap((property) => {
+    const values = [first, ...rest].map((consts) => consts.get(property));
+    return values.every((value) => value !== void 0) ? [{ property, values }] : [];
+  });
+  const isDistinct = ({ property, values }) => new Set(values).size === values.length && (events.length > 1 || DISCRIMINATOR_NAMES.includes(property));
+  const chosen = candidates.find(({ values }) => values.every((value, index) => value === events[index].name)) ?? candidates.find(isDistinct);
+  if (!chosen) return null;
+  return {
+    property: chosen.property,
+    values: Object.fromEntries(events.map((event, index) => [event.name, chosen.values[index]]))
+  };
+}
+function nameRank(property) {
+  const rank = DISCRIMINATOR_NAMES.indexOf(property);
+  return rank === -1 ? DISCRIMINATOR_NAMES.length : rank;
+}
+function stringConsts(schema, schemas) {
+  const consts = /* @__PURE__ */ new Map();
+  const seen = /* @__PURE__ */ new Set();
+  function visit(node) {
+    if (!isRecord(node) || seen.has(node)) return;
+    seen.add(node);
+    if (typeof node.$ref === "string") {
+      const key = componentName(node.$ref);
+      if (key !== null && Object.hasOwn(schemas, key)) visit(schemas[key]);
+      return;
+    }
+    if (Array.isArray(node.allOf)) node.allOf.forEach(visit);
+    if (!isRecord(node.properties)) return;
+    for (const [property, value] of Object.entries(node.properties)) {
+      const pinned = pinnedString(value);
+      if (pinned !== null) consts.set(property, pinned);
+    }
+  }
+  visit(schema);
+  return consts;
+}
+function pinnedString(schema) {
+  if (!isRecord(schema)) return null;
+  if (typeof schema.const === "string") return schema.const;
+  const { enum: values } = schema;
+  if (Array.isArray(values) && values.length === 1 && typeof values[0] === "string") return values[0];
+  return null;
+}
+function eventKey(model, event) {
+  return model.discriminator?.values[event.name] ?? event.name;
+}
+function getPath(value, keys) {
+  let current = value;
+  for (const key of keys) {
+    if (!isRecord(current)) return void 0;
+    current = current[key];
+  }
+  return current;
+}
+
+// src/registry/names.ts
+function uniqueNames(reserved) {
+  const taken = new Set(reserved);
+  const nextSuffix = /* @__PURE__ */ new Map();
+  function claim(name) {
+    let unique = name;
+    let suffix = nextSuffix.get(name) ?? 2;
+    while (taken.has(unique)) unique = `${name}${suffix++}`;
+    nextSuffix.set(name, suffix);
+    taken.add(unique);
+    return unique;
+  }
+  return { claim };
+}
+function words(text) {
+  return text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[^A-Za-z0-9]+/).filter(Boolean);
+}
+function pascalCase(text) {
+  return text.split(/[^A-Za-z0-9]+/).filter(Boolean).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join("");
+}
+function typeName(text) {
+  const name = pascalCase(text);
+  return /^\d/.test(name) ? `_${name}` : name;
+}
+function snakeCase(text) {
+  const name = words(text).map((word) => word.toLowerCase()).join("_");
+  return /^\d/.test(name) ? `_${name}` : name;
+}
+var GO_RESERVED = /* @__PURE__ */ new Set([
+  "break",
+  "case",
+  "chan",
+  "const",
+  "continue",
+  "default",
+  "defer",
+  "else",
+  "fallthrough",
+  "for",
+  "func",
+  "go",
+  "goto",
+  "if",
+  "import",
+  "interface",
+  "map",
+  "package",
+  "range",
+  "return",
+  "select",
+  "struct",
+  "switch",
+  "type",
+  "var",
+  "main",
+  "init",
+  "documentation",
+  "any",
+  "bool",
+  "byte",
+  "comparable",
+  "complex64",
+  "complex128",
+  "error",
+  "float32",
+  "float64",
+  "int",
+  "int8",
+  "int16",
+  "int32",
+  "int64",
+  "rune",
+  "string",
+  "uint",
+  "uint8",
+  "uint16",
+  "uint32",
+  "uint64",
+  "uintptr",
+  "true",
+  "false",
+  "iota",
+  "nil",
+  "append",
+  "cap",
+  "clear",
+  "close",
+  "complex",
+  "copy",
+  "delete",
+  "imag",
+  "len",
+  "make",
+  "max",
+  "min",
+  "new",
+  "panic",
+  "print",
+  "println",
+  "real",
+  "recover"
+]);
+function goPackageName(name) {
+  const pkg = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return /^\d/.test(pkg) || GO_RESERVED.has(pkg) ? `x${pkg}` : pkg;
+}
+var PYTHON_KEYWORDS = /* @__PURE__ */ new Set([
+  "False",
+  "None",
+  "True",
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "try",
+  "while",
+  "with",
+  "yield"
+]);
+function pythonModuleName(name) {
+  const module = snakeCase(name);
+  return PYTHON_KEYWORDS.has(module) ? `${module}_` : module;
 }
 
 // src/registry/registry-client.ts
@@ -32130,63 +32374,1346 @@ function registryBaseUrl(registryUrl, registry) {
   const { owner, name } = parseRegistry(registry);
   return `${registryUrl.replace(/\/+$/, "")}/registries/${owner}/${name}`;
 }
+var RegistryError = class extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+  status;
+};
 async function requestJson(fetchImpl, url, init) {
   const response = await fetchImpl(url, init);
   const body = await response.json().catch(() => void 0);
   if (response.ok) return body;
   const reason = isRecord(body) && typeof body.error === "string" ? body.error : response.statusText;
-  throw new Error(`registry responded ${response.status}: ${reason}`);
+  throw new RegistryError(response.status, `registry responded ${response.status}: ${reason}`);
 }
 
-// src/registry/generate.ts
-var GENERATOR_VERSION = 2;
-var HEADER = /^\/\/ Generated by typedhook pull v(\d+) from ([^\s@]+)@(\S+) \(doc (sha256-[A-Za-z0-9+/]+={0,2}), body (sha256-[A-Za-z0-9+/]+={0,2})\)\. Do not edit\.\n/;
-async function generateTypes({
-  registry,
-  version,
-  hash,
-  document
-}) {
-  const { name } = parseRegistry(registry);
-  if (!isStrictSemver(version)) throw new Error(`${registry}: invalid version ${JSON.stringify(version)}`);
-  if (!isHash(hash)) throw new Error(`${registry}@${version}: invalid hash ${JSON.stringify(hash)}`);
-  if (!isRecord(document) || !isRecord(document.webhooks)) {
-    throw new Error(`${registry}@${version}: the document has no webhooks object`);
+// src/registry/go.ts
+var RUNTIME_NAMES = [
+  "DefaultTolerance",
+  "Error",
+  "Event",
+  "Parse",
+  "Reason",
+  "ReasonInvalidID",
+  "ReasonInvalidJSON",
+  "ReasonInvalidSecret",
+  "ReasonInvalidSignature",
+  "ReasonInvalidTimestamp",
+  "ReasonMissingHeaders",
+  "ReasonTimestampOutOfTolerance",
+  "UnknownEvent",
+  "Verifier",
+  "Verify",
+  "VerifySignature"
+];
+var primitiveTypes2 = /* @__PURE__ */ new Map([
+  ["string", "string"],
+  ["integer", "int64"],
+  ["number", "float64"],
+  ["boolean", "bool"]
+]);
+var initialisms = /* @__PURE__ */ new Set([
+  "acl",
+  "api",
+  "ascii",
+  "cpu",
+  "css",
+  "dns",
+  "eof",
+  "guid",
+  "html",
+  "http",
+  "https",
+  "id",
+  "ip",
+  "json",
+  "lhs",
+  "qps",
+  "ram",
+  "rhs",
+  "rpc",
+  "sla",
+  "smtp",
+  "sql",
+  "ssh",
+  "tcp",
+  "tls",
+  "ttl",
+  "udp",
+  "ui",
+  "uid",
+  "uuid",
+  "uri",
+  "url",
+  "utf8",
+  "vm",
+  "xml",
+  "xmpp",
+  "xsrf",
+  "xss"
+]);
+var SHAPING_KEYWORDS = [
+  "$ref",
+  "const",
+  "enum",
+  "anyOf",
+  "oneOf",
+  "allOf",
+  "type",
+  "properties",
+  "additionalProperties",
+  "items",
+  "prefixItems"
+];
+var JSON_NAME = /^[\p{L}\p{Nd}!#$%&()*+\-./:;<=>?@[\]^_{|}~ ]+$/u;
+var LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+var HIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+var curlyQuotes = /* @__PURE__ */ new Map([
+  ["``", "\u201C"],
+  ["''", "\u201D"]
+]);
+var stringEscapes = /* @__PURE__ */ new Map([
+  ["\\", "\\\\"],
+  ['"', '\\"'],
+  ["\n", "\\n"],
+  ["\r", "\\r"],
+  ["	", "\\t"]
+]);
+var RAW = { kind: "named", name: "json.RawMessage", shape: "raw", isNullable: false };
+var ANY = { kind: "named", name: "any", shape: "raw", isNullable: false };
+function goCode({ registry, name, model }) {
+  const pkg = goPackageName(name);
+  const names = uniqueNames(RUNTIME_NAMES);
+  const events = model.events.map((event) => ({ event, name: names.claim(goName(event.name, "Event")) }));
+  const eventNames = new Set(events.map((event) => event.name));
+  const componentNames = new Map(
+    Object.keys(model.schemas).sort().map((key) => {
+      const base = goName(key, "Schema");
+      return [key, names.claim(eventNames.has(base) ? `${base}Data` : base)];
+    })
+  );
+  const generator = {
+    model,
+    names,
+    components: new Map(Object.entries(model.schemas)),
+    componentNames,
+    componentTypes: /* @__PURE__ */ new Map(),
+    resolved: /* @__PURE__ */ new Map(),
+    shared: /* @__PURE__ */ new Map(),
+    declarations: [],
+    outputLength: 0,
+    usesJSON: false
+  };
+  for (const { event, name: name2 } of events) declareEvent(generator, event, name2);
+  for (const [key, name2] of componentNames) declareComponent(generator, key, name2);
+  const types = generator.declarations.map((declaration) => renderDeclaration(generator, declaration));
+  const { discriminator } = model;
+  const keys = events.map(({ event, name: name2 }) => ({ key: eventKey(model, event), name: name2 }));
+  const parse = discriminator === null ? [] : [parseCode(registry, discriminator.property, keys)];
+  const sections = [
+    packageCode(pkg, registry, discriminator !== null || generator.usesJSON),
+    ...parse,
+    verifyCode(pkg, discriminator !== null),
+    ...types
+  ];
+  return `
+${sections.join("\n\n")}
+`;
+}
+function declareEvent(generator, event, name) {
+  const { description = "" } = event;
+  const key = eventKey(generator.model, event);
+  const doc = docLines(`${name} is the ${goString(key)} event.
+${description}`);
+  spend(generator, doc.join("").length);
+  const at = { name, isClaimed: true, isInComponent: false };
+  if (generator.model.discriminator === null) {
+    declareType(generator, at, doc, event.payload);
+    return;
   }
-  const { webhooks } = document;
-  const schemas = isRecord(document.components) && isRecord(document.components.schemas) ? document.components.schemas : {};
+  const merged = mergeParts(objectParts(generator, event.payload, /* @__PURE__ */ new Set()));
+  Object.assign(structType(generator, merged, at), { doc, isEvent: true });
+}
+function declareComponent(generator, key, name) {
+  const schema = generator.components.get(key);
+  const doc = docLines(`${name} is the ${goString(key)} schema.
+${getDescription(schema) ?? ""}`);
+  spend(generator, doc.join("").length);
+  const at = { name, isClaimed: true, isInComponent: true };
+  generator.componentTypes.set(key, declareType(generator, at, doc, schema));
+}
+function declareType(generator, at, doc, schema) {
+  const index = generator.declarations.length;
+  const type = convert2(generator, schema, at);
+  const declared = generator.declarations.at(index);
+  if (declared?.name === at.name) declared.doc = doc;
+  else generator.declarations.splice(index, 0, { kind: "type", name: at.name, doc, type });
+  return type;
+}
+function convert2(generator, schema, at) {
+  if (!isRecord(schema)) return RAW;
+  if (typeof schema.$ref === "string") return refType(generator, schema.$ref);
+  if (schema.const !== void 0) return enumType(generator, [schema.const], at);
+  if (Array.isArray(schema.enum)) return enumType(generator, schema.enum, at);
+  const variants = schema.anyOf ?? schema.oneOf;
+  if (Array.isArray(variants)) return unionType(generator, schema, variants, at);
+  if (Array.isArray(schema.allOf)) return allOfType(generator, schema, schema.allOf, at);
+  const { type } = schema;
+  if (Array.isArray(type)) return typeListType(generator, schema, type, at);
+  if (isObjectLike(schema)) return objectType2(generator, [schema], at);
+  if (type === "array") return arrayType2(generator, schema, at);
+  const primitive = typeof type === "string" ? primitiveTypes2.get(type) : void 0;
+  return primitive === void 0 ? RAW : scalar(primitive);
+}
+function refType(generator, ref) {
+  const key = componentName(ref);
+  const name = key === null ? void 0 : generator.componentNames.get(key);
+  if (key === null || name === void 0) return RAW;
+  return { kind: "ref", key, name, isNullable: false };
+}
+function enumType(generator, values, at) {
+  const present = values.filter((value) => value !== null);
+  const isNullable2 = present.length < values.length;
+  const type = valuesType(present);
+  if (type === null) return RAW;
+  const strings = [...new Set(present.filter((value) => typeof value === "string"))];
+  if (type !== "string" || strings.length < 2) return { ...scalar(type), isNullable: isNullable2 };
+  const enumeration = share(generator, at, { enum: strings }, () => {
+    const name = at.isClaimed ? at.name : generator.names.claim(at.name);
+    const constants = strings.map((value) => {
+      const constant = generator.names.claim(`${name}${goName(value, "Value")}`);
+      spend(generator, constant.length + value.length);
+      return { name: constant, value };
+    });
+    generator.declarations.push({ kind: "enum", name, doc: [], values: constants });
+    return named(name, "scalar");
+  });
+  return { ...enumeration, isNullable: isNullable2 };
+}
+function unionType(generator, schema, variants, at) {
+  const present = variants.filter((variant) => !isNullSchema(variant));
+  const isNullable2 = present.length < variants.length;
+  if (present.every(isNeutral)) return withNullable(convert2(generator, omit(schema, ["anyOf", "oneOf"]), at), isNullable2);
+  const [first] = present;
+  if (present.length === 1) return withNullable(convert2(generator, first, at), isNullable2);
+  const values = present.map(enumValues);
+  if (values.every((list) => list !== null)) {
+    return withNullable(enumType(generator, values.flat(), at), isNullable2);
+  }
+  const types = [...new Set(present.map(scalarTypeOf))];
+  const [type] = types;
+  if (types.length === 1 && type !== null) return { ...scalar(type), isNullable: isNullable2 };
+  return RAW;
+}
+function allOfType(generator, schema, parts, at) {
+  const rest = omit(schema, ["allOf"]);
+  const shaping = parts.filter((part) => !isNeutral(part));
+  const [first] = shaping;
+  if (isNeutral(rest) && shaping.length === 1) return convert2(generator, first, at);
+  const objects = objectParts(generator, schema, /* @__PURE__ */ new Set());
+  if (objects.length > 0) return objectType2(generator, objects, at);
+  if (shaping.length === 0) return convert2(generator, rest, at);
+  return RAW;
+}
+function typeListType(generator, schema, types, at) {
+  const unique = [...new Set(types)];
+  const present = unique.filter((type) => type !== "null");
+  const isNullable2 = present.length < unique.length;
+  const [first] = present;
+  if (present.length !== 1) return RAW;
+  return withNullable(convert2(generator, { ...schema, type: first }, at), isNullable2);
+}
+function objectType2(generator, parts, at) {
+  const merged = mergeParts(parts);
+  if (merged.properties.size > 0) {
+    return share(generator, at, parts, () => named(structType(generator, merged, at).name, "struct"));
+  }
+  const [first] = parts;
+  const extra = parts.length === 1 ? first.additionalProperties : void 0;
+  if (extra === false) return named("struct{}", "struct");
+  if (extra === void 0 || isNeutral(extra)) return { kind: "map", value: ANY, isNullable: false };
+  return { kind: "map", value: convert2(generator, extra, child(at, `${at.name}Value`)), isNullable: false };
+}
+function structType(generator, { properties, required }, at) {
+  const name = at.isClaimed ? at.name : generator.names.claim(at.name);
+  const declaration = {
+    kind: "struct",
+    name,
+    doc: [],
+    fields: [],
+    isInComponent: at.isInComponent,
+    isEvent: false
+  };
+  generator.declarations.push(declaration);
+  spend(generator, name.length);
+  const fieldNames = uniqueNames([]);
+  for (const [jsonName, schema] of properties) {
+    if (!JSON_NAME.test(jsonName)) continue;
+    const fieldName = fieldNames.claim(goName(jsonName, "Field"));
+    const doc = docLines(getDescription(schema) ?? "");
+    spend(generator, fieldName.length + jsonName.length + doc.join("").length);
+    const type = convert2(generator, schema, child(at, `${name}${fieldName}`));
+    declaration.fields.push({ name: fieldName, jsonName, type, isOptional: !required.has(jsonName), doc });
+  }
+  return declaration;
+}
+function arrayType2(generator, schema, at) {
+  const { prefixItems, items } = schema;
+  if (!Array.isArray(prefixItems)) {
+    const item2 = items === void 0 ? RAW : convert2(generator, items, child(at, `${at.name}Item`));
+    return { kind: "slice", item: item2, isNullable: false };
+  }
+  const members = items === void 0 || items === false ? prefixItems : [...prefixItems, items];
+  const types = [...new Set(members.map(scalarTypeOf))];
+  const [type] = types;
+  const item = types.length === 1 && type !== null ? scalar(type) : RAW;
+  return { kind: "slice", item, isNullable: false };
+}
+function objectParts(generator, schema, seen) {
+  if (!isRecord(schema) || seen.has(schema)) return [];
+  seen.add(schema);
+  if (typeof schema.$ref === "string") {
+    const key = componentName(schema.$ref);
+    return key === null ? [] : objectParts(generator, generator.components.get(key), seen);
+  }
+  const nested = Array.isArray(schema.allOf) ? schema.allOf.flatMap((part) => objectParts(generator, part, seen)) : [];
+  return isRecord(schema.properties) || schema.type === "object" ? [...nested, schema] : nested;
+}
+function share(generator, at, schema, declare) {
+  if (at.isClaimed) return declare();
+  const key = `${at.isInComponent}${JSON.stringify(schema)}`;
+  const known = generator.shared.get(key);
+  if (known !== void 0) return known;
+  const type = declare();
+  generator.shared.set(key, type);
+  return type;
+}
+function mergeParts(parts) {
+  const properties = /* @__PURE__ */ new Map();
+  const required = /* @__PURE__ */ new Set();
+  for (const part of parts) {
+    if (isRecord(part.properties)) {
+      for (const [key, value] of Object.entries(part.properties)) properties.set(key, value);
+    }
+    if (Array.isArray(part.required)) for (const key of part.required) required.add(key);
+  }
+  return { properties, required };
+}
+function enumValues(schema) {
+  if (!isRecord(schema)) return null;
+  if (schema.const !== void 0) return [schema.const];
+  return Array.isArray(schema.enum) ? schema.enum : null;
+}
+function scalarTypeOf(schema) {
+  const values = enumValues(schema);
+  if (values !== null) return valuesType(values.filter((value) => value !== null));
+  if (!isRecord(schema) || typeof schema.type !== "string" || !isNeutral(omit(schema, ["type"]))) return null;
+  return primitiveTypes2.get(schema.type) ?? null;
+}
+function valuesType(values) {
+  const types = new Set(values.map(valueType));
+  if (types.size === 2 && types.has("int64") && types.has("float64")) return "float64";
+  const [type] = types;
+  return types.size === 1 ? type : null;
+}
+function valueType(value) {
+  if (typeof value === "string") return "string";
+  if (typeof value === "boolean") return "bool";
+  if (typeof value !== "number") return null;
+  return Number.isInteger(value) ? "int64" : "float64";
+}
+function isObjectLike(schema) {
+  return schema.type === "object" || schema.type === void 0 && isRecord(schema.properties);
+}
+function isNullSchema(schema) {
+  if (!isRecord(schema)) return false;
+  if (schema.type === "null" || schema.const === null) return true;
+  return Array.isArray(schema.enum) && schema.enum.length > 0 && schema.enum.every((value) => value === null);
+}
+function isNeutral(schema) {
+  if (schema === true) return true;
+  return isRecord(schema) && SHAPING_KEYWORDS.every((keyword) => schema[keyword] === void 0);
+}
+function omit(schema, keys) {
+  return Object.fromEntries(Object.entries(schema).filter(([key]) => !keys.includes(key)));
+}
+function child(at, name) {
+  return { ...at, name, isClaimed: false };
+}
+function named(name, shape) {
+  return { kind: "named", name, shape, isNullable: false };
+}
+function scalar(name) {
+  return named(name, "scalar");
+}
+function withNullable(type, isNullable2) {
+  return { ...type, isNullable: type.isNullable || isNullable2 };
+}
+function spend(generator, length) {
+  generator.outputLength += length;
+  if (generator.outputLength > MAX_OUTPUT_LENGTH) {
+    const limit = MAX_OUTPUT_LENGTH.toLocaleString("en-US");
+    throw new Error(`a schema generates over ${limit} characters of Go`);
+  }
+}
+function renderDeclaration(generator, declaration) {
+  const doc = declaration.doc.map((line) => `// ${line}`);
+  if (declaration.kind === "struct") return [...doc, ...renderStruct(generator, declaration)].join("\n");
+  if (declaration.kind === "enum") return [...doc, ...renderEnum(declaration)].join("\n");
+  return [...doc, renderTypeDeclaration(generator, declaration)].join("\n");
+}
+function renderStruct(generator, declaration) {
+  const { name, fields, isEvent } = declaration;
+  const lines = fields.length === 0 ? [`type ${name} struct{}`] : [`type ${name} struct {`, ...fieldLines(generator, declaration), "}"];
+  if (isEvent) lines.push("", `func (*${name}) isEvent() {}`);
+  return lines;
+}
+function fieldLines(generator, { fields, isInComponent }) {
+  const blocks = [];
+  for (const field of fields) {
+    const row = { field, type: fieldType(generator, field, isInComponent) };
+    const block = blocks.at(-1);
+    if (block === void 0 || field.doc.length > 0) blocks.push([row]);
+    else block.push(row);
+  }
+  return blocks.flatMap((block) => {
+    const nameWidth = block.reduce((width, { field }) => Math.max(width, field.name.length), 0);
+    const typeWidth = block.reduce((width, { type }) => Math.max(width, type.length), 0);
+    return block.flatMap(({ field, type }) => [
+      ...field.doc.map((line) => `	// ${line}`),
+      `	${field.name.padEnd(nameWidth)} ${type.padEnd(typeWidth)} \`${jsonTag(field.jsonName, field.isOptional)}\``
+    ]);
+  });
+}
+function fieldType(generator, { type, isOptional }, isInComponent) {
+  const shape = shapeOf(generator, type);
+  const mayRecurse = isInComponent && type.kind === "ref" && shape === "struct";
+  const isPointer = canPoint(shape) && (isOptional || isNullable(generator, type) || mayRecurse);
+  return isPointer ? `*${typeText(generator, type)}` : typeText(generator, type);
+}
+function elementText(generator, type) {
+  const isPointer = canPoint(shapeOf(generator, type)) && isNullable(generator, type);
+  return isPointer ? `*${typeText(generator, type)}` : typeText(generator, type);
+}
+function typeText(generator, type) {
+  if (type.kind === "named") {
+    if (type.name === "json.RawMessage") generator.usesJSON = true;
+    return type.name;
+  }
+  if (type.kind === "ref") return type.name;
+  if (type.kind === "slice") return `[]${elementText(generator, type.item)}`;
+  return `map[string]${elementText(generator, type.value)}`;
+}
+function renderEnum({ name, values }) {
+  const width = values.reduce((max, value) => Math.max(max, value.name.length), 0);
+  const constants = values.map((value) => `	${value.name.padEnd(width)} ${name} = ${goString(value.value)}`);
+  return [`type ${name} string`, "", "const (", ...constants, ")"];
+}
+function renderTypeDeclaration(generator, { name, type }) {
+  if (type.kind === "ref") {
+    if (resolveRef(generator, type.key) !== null) return `type ${name} = ${type.name}`;
+    generator.usesJSON = true;
+    return `type ${name} = json.RawMessage`;
+  }
+  if (type.kind === "named" && type.shape !== "struct") return `type ${name} = ${typeText(generator, type)}`;
+  return `type ${name} ${typeText(generator, type)}`;
+}
+function shapeOf(generator, type) {
+  if (type.kind === "named") return type.shape;
+  if (type.kind === "ref") return resolveRef(generator, type.key)?.shape ?? "raw";
+  return "list";
+}
+function isNullable(generator, type) {
+  if (type.isNullable || type.kind !== "ref") return type.isNullable;
+  return resolveRef(generator, type.key)?.isNullable === true;
+}
+function canPoint(shape) {
+  return shape === "struct" || shape === "scalar";
+}
+function resolveRef(generator, key) {
+  const cached = generator.resolved.get(key);
+  if (cached !== void 0) return cached;
+  const seen = /* @__PURE__ */ new Set();
+  let isNullable2 = false;
+  let next = key;
+  let resolved = null;
+  while (!seen.has(next)) {
+    seen.add(next);
+    const type = generator.componentTypes.get(next);
+    if (type === void 0) break;
+    isNullable2 ||= type.isNullable;
+    if (type.kind !== "ref") {
+      resolved = { shape: shapeOf(generator, type), isNullable: isNullable2 };
+      break;
+    }
+    next = type.key;
+  }
+  generator.resolved.set(key, resolved);
+  return resolved;
+}
+function jsonTag(name, isOptional) {
+  if (isOptional) return `json:"${name},omitempty"`;
+  if (name === "-") return 'json:"-,"';
+  return `json:"${name}"`;
+}
+function goName(text, fallback) {
+  const name = words(text).map((word) => initialisms.has(word.toLowerCase()) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1)).join("");
+  if (name === "") return fallback;
+  return /^\d/.test(name) ? `X${name}` : name;
+}
+function goString(text) {
+  return `"${text.replace(/[^\x20-\x7E]|["\\]/gu, (char) => stringEscapes.get(char) ?? unicodeEscape(char))}"`;
+}
+function unicodeEscape(char) {
+  const code = char.codePointAt(0);
+  if (code === void 0 || code >= 55296 && code <= 57343) return "\\uFFFD";
+  if (code > 65535) return `\\U${code.toString(16).padStart(8, "0")}`;
+  return `\\u${code.toString(16).padStart(4, "0")}`;
+}
+function docLines(text) {
+  return text.replace(LONE_SURROGATE, "\uFFFD").split(/\r\n|[\n\r\u0085\u2028\u2029]/).map((line) => line.replace(HIDDEN, "").replaceAll("	", " ").trim()).filter((line) => line !== "").map(
+    (line) => line.replace(/^\+build(?=\s|$)/, "+ build").replace(/`{3,}|``|''/g, (quotes) => curlyQuotes.get(quotes) ?? quotes)
+  );
+}
+function packageCode(pkg, registry, usesJSON) {
+  const imports = [
+    "crypto/hmac",
+    "crypto/sha256",
+    "encoding/base64",
+    ...usesJSON ? ["encoding/json"] : [],
+    "net/http",
+    "strconv",
+    "strings",
+    "time"
+  ];
+  return [
+    `// Package ${pkg} holds the ${registry} webhook events and verifies their Standard Webhooks signatures.`,
+    `package ${pkg}`,
+    "",
+    "import (",
+    ...imports.map((path) => `	"${path}"`),
+    ")"
+  ].join("\n");
+}
+function parseCode(registry, property, events) {
+  const quoted = goString(property);
+  return [
+    `// Event is a decoded ${registry} webhook: a pointer to one of the event types below, or *UnknownEvent.`,
+    "type Event interface {",
+    "	isEvent()",
+    "}",
+    "",
+    "// UnknownEvent is an event this package has no type for, like one added after it was generated.",
+    "type UnknownEvent struct {",
+    ...docLines(`Name is the payload's ${quoted} property.`).map((line) => `	// ${line}`),
+    "	Name string",
+    "	Raw  json.RawMessage",
+    "}",
+    "",
+    "func (*UnknownEvent) isEvent() {}",
+    "",
+    ...docLines(`Parse decodes a payload into the event type its ${quoted} property names, or an *UnknownEvent.`).map(
+      (line) => `// ${line}`
+    ),
+    "func Parse(payload []byte) (Event, error) {",
+    "	var fields map[string]json.RawMessage",
+    "	if err := json.Unmarshal(payload, &fields); err != nil {",
+    "		return nil, &Error{Reason: ReasonInvalidJSON, Err: err}",
+    "	}",
+    "	var name string",
+    `	if err := json.Unmarshal(fields[${quoted}], &name); err != nil {`,
+    "		return &UnknownEvent{Raw: payload}, nil",
+    "	}",
+    "	var event Event",
+    "	switch name {",
+    ...events.flatMap(({ key, name }) => [`	case ${goString(key)}:`, `		event = &${name}{}`]),
+    "	default:",
+    "		return &UnknownEvent{Name: name, Raw: payload}, nil",
+    "	}",
+    "	if err := json.Unmarshal(payload, event); err != nil {",
+    "		return nil, &Error{Reason: ReasonInvalidJSON, Err: err}",
+    "	}",
+    "	return event, nil",
+    "}"
+  ].join("\n");
+}
+function verifyCode(pkg, canParse) {
+  const verifyEvent = [
+    "// Verify checks the signature like VerifySignature, then decodes the payload like Parse.",
+    "func Verify(payload []byte, header http.Header, secret string) (Event, error) {",
+    "	return Verifier{Secret: secret}.Verify(payload, header)",
+    "}",
+    ""
+  ];
+  const verifyEventMethod = [
+    "// Verify checks the signature like VerifySignature, then decodes the payload like Parse.",
+    "func (v Verifier) Verify(payload []byte, header http.Header) (Event, error) {",
+    "	if err := v.VerifySignature(payload, header); err != nil {",
+    "		return nil, err",
+    "	}",
+    "	return Parse(payload)",
+    "}",
+    ""
+  ];
+  return [
+    "// DefaultTolerance is how far from now a webhook-timestamp may be when Verifier.Tolerance is zero.",
+    "const DefaultTolerance = 5 * time.Minute",
+    "",
+    "// The signature header is the sender's to fill, so it caps the HMACs computed per request.",
+    "const maxSignatureCandidates = 8",
+    "",
+    '// Verifier checks Standard Webhooks signatures made with Secret, a "whsec_" base64 secret or the raw secret.',
+    "type Verifier struct {",
+    "	Secret string",
+    "	// Tolerance is how far from now the webhook-timestamp may be; zero means DefaultTolerance.",
+    "	Tolerance time.Duration",
+    "}",
+    "",
+    ...canParse ? verifyEvent : [],
+    "// VerifySignature checks that payload, the raw request body, was signed with secret, reading the",
+    "// webhook-* headers or their svix-* equivalents.",
+    "func VerifySignature(payload []byte, header http.Header, secret string) error {",
+    "	return Verifier{Secret: secret}.VerifySignature(payload, header)",
+    "}",
+    "",
+    ...canParse ? verifyEventMethod : [],
+    "// VerifySignature checks that payload, the raw request body, was signed with v.Secret.",
+    "func (v Verifier) VerifySignature(payload []byte, header http.Header) error {",
+    '	id := headerValue(header, "Id")',
+    '	timestamp := headerValue(header, "Timestamp")',
+    '	signatures := headerValue(header, "Signature")',
+    '	if id == "" || timestamp == "" || signatures == "" {',
+    "		return &Error{Reason: ReasonMissingHeaders}",
+    "	}",
+    '	// A "." would let another split of "{id}.{timestamp}.{body}" reuse the signature.',
+    '	if strings.Contains(id, ".") {',
+    "		return &Error{Reason: ReasonInvalidID}",
+    "	}",
+    "	seconds, err := strconv.ParseInt(timestamp, 10, 64)",
+    "	if err != nil {",
+    "		return &Error{Reason: ReasonInvalidTimestamp}",
+    "	}",
+    "	if !v.isFresh(seconds) {",
+    "		return &Error{Reason: ReasonTimestampOutOfTolerance}",
+    "	}",
+    "	key, ok := secretKey(v.Secret)",
+    "	if !ok {",
+    "		return &Error{Reason: ReasonInvalidSecret}",
+    "	}",
+    "	mac := hmac.New(sha256.New, key)",
+    '	mac.Write([]byte(id + "." + strconv.FormatInt(seconds, 10) + "."))',
+    "	mac.Write(payload)",
+    "	expected := mac.Sum(nil)",
+    "	candidates := 0",
+    '	for _, entry := range strings.Split(signatures, " ") {',
+    "		if candidates == maxSignatureCandidates {",
+    "			break",
+    "		}",
+    '		version, rest, _ := strings.Cut(entry, ",")',
+    '		signature, _, _ := strings.Cut(rest, ",")',
+    '		if version != "v1" || signature == "" {',
+    "			continue",
+    "		}",
+    "		candidates++",
+    "		decoded, ok := decodeBase64(signature)",
+    "		if ok && hmac.Equal(decoded, expected) {",
+    "			return nil",
+    "		}",
+    "	}",
+    "	return &Error{Reason: ReasonInvalidSignature}",
+    "}",
+    "",
+    "func (v Verifier) isFresh(seconds int64) bool {",
+    "	tolerance := v.Tolerance",
+    "	if tolerance == 0 {",
+    "		tolerance = DefaultTolerance",
+    "	}",
+    "	skew := int64(tolerance / time.Second)",
+    "	now := time.Now().Unix()",
+    "	return seconds >= now-skew && seconds <= now+skew",
+    "}",
+    "",
+    "// Reason is why a webhook was rejected, as the codes @typedhook/verify uses.",
+    "type Reason string",
+    "",
+    "const (",
+    '	ReasonMissingHeaders          Reason = "missing_headers"',
+    '	ReasonInvalidID               Reason = "invalid_id"',
+    '	ReasonInvalidTimestamp        Reason = "invalid_timestamp"',
+    '	ReasonTimestampOutOfTolerance Reason = "timestamp_out_of_tolerance"',
+    '	ReasonInvalidSignature        Reason = "invalid_signature"',
+    '	ReasonInvalidSecret           Reason = "invalid_secret"',
+    '	ReasonInvalidJSON             Reason = "invalid_json"',
+    ")",
+    "",
+    "// Error is a rejected webhook; read its Reason with errors.As.",
+    "type Error struct {",
+    "	Reason Reason",
+    "	// Err is the decoding error behind ReasonInvalidJSON.",
+    "	Err error",
+    "}",
+    "",
+    "func (e *Error) Error() string {",
+    "	if e.Err == nil {",
+    `		return "${pkg}: " + string(e.Reason)`,
+    "	}",
+    `	return "${pkg}: " + string(e.Reason) + ": " + e.Err.Error()`,
+    "}",
+    "",
+    "func (e *Error) Unwrap() error {",
+    "	return e.Err",
+    "}",
+    "",
+    "// An empty webhook-* header doesn't fall back to svix-*, as in @typedhook/verify.",
+    "func headerValue(header http.Header, name string) string {",
+    '	if values := header.Values("Webhook-" + name); len(values) > 0 {',
+    "		return values[0]",
+    "	}",
+    '	return header.Get("Svix-" + name)',
+    "}",
+    "",
+    `// A "whsec_" secret that isn't base64 is invalid, never the literal string: that key would be guessable.`,
+    "func secretKey(secret string) ([]byte, bool) {",
+    '	encoded, isEncoded := strings.CutPrefix(secret, "whsec_")',
+    "	if !isEncoded {",
+    '		return []byte(secret), secret != ""',
+    "	}",
+    "	key, ok := decodeBase64(encoded)",
+    "	return key, ok && len(key) > 0",
+    "}",
+    "",
+    "// StdEncoding skips \\r and \\n, which @typedhook/verify rejects.",
+    "func decodeBase64(text string) ([]byte, bool) {",
+    '	if strings.ContainsAny(text, "\\r\\n") {',
+    "		return nil, false",
+    "	}",
+    "	decoded, err := base64.StdEncoding.DecodeString(text)",
+    "	return decoded, err == nil",
+    "}"
+  ].join("\n");
+}
+
+// src/registry/python.ts
+var MAX_NESTING = 64;
+var primitiveTypes3 = /* @__PURE__ */ new Map([
+  ["string", "str"],
+  ["integer", "int"],
+  ["number", "float"],
+  ["boolean", "bool"]
+]);
+var MODULE_NAMES = [
+  "Any",
+  "Dict",
+  "List",
+  "Literal",
+  "Mapping",
+  "NoReturn",
+  "NotRequired",
+  "Optional",
+  "Tuple",
+  "TypeAlias",
+  "TypedDict",
+  "Union",
+  "cast",
+  "annotations",
+  "base64",
+  "hashlib",
+  "hmac",
+  "json",
+  "re",
+  "sys",
+  "time",
+  "Exception",
+  "RecursionError",
+  "ValueError",
+  "abs",
+  "float",
+  "int",
+  "isinstance",
+  "len",
+  "str",
+  "super",
+  "VerifyFailure",
+  "WebhookVerificationError",
+  "verify",
+  "_BASE64",
+  "_MAX_SIGNATURE_CANDIDATES",
+  "_TIMESTAMP",
+  "_base64",
+  "_has_signature",
+  "_header",
+  "_lookup",
+  "_reject_constant",
+  "_secret_key",
+  "_timestamp",
+  ...PYTHON_KEYWORDS
+];
+var VERSIONED_IMPORTS = /* @__PURE__ */ new Set(["NotRequired", "TypeAlias"]);
+var VERIFIER_IMPORTS = ["Literal", "Mapping", "NoReturn", "Optional", "Union", "cast"];
+var UNSAFE = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Zl}\p{Zp}]/gu;
+var shortEscapes = /* @__PURE__ */ new Map([
+  ["\n", "\\n"],
+  ["\r", "\\r"],
+  ["	", "\\t"]
+]);
+var ANY2 = rendered("Any", ["Any"]);
+var NONE = rendered("None");
+var LINE_LENGTH = 88;
+function pythonCode({ registry, name, model }) {
   const base = typeName(name);
+  const eventName = `${base}Event`;
+  const { claim } = uniqueNames([eventName, ...MODULE_NAMES]);
+  const payloadNames = model.events.map((event) => claim(`${base}${pascalCase(event.name) || "Payload"}`));
+  const aliases = new Map(
+    Object.keys(model.schemas).sort().map((key) => [key, claim(`${base}${pascalCase(key) || "Schema"}`)])
+  );
+  const emitter = {
+    claim,
+    refName: (ref) => {
+      const key = componentName(ref);
+      return key === null ? void 0 : aliases.get(key);
+    },
+    definitions: [],
+    classes: /* @__PURE__ */ new Set(),
+    imports: new Set(VERIFIER_IMPORTS),
+    size: 0
+  };
+  const payloads = model.events.flatMap((event, index) => {
+    const doc = event.description?.trim() || null;
+    const scope = { hint: payloadNames[index], claimed: payloadNames[index], doc };
+    return convert3(event.payload, scope, emitter);
+  });
+  for (const [key, alias] of aliases) {
+    const schema = model.schemas[key];
+    const doc = getDescription(schema);
+    const type = render(convert3(schema, { hint: alias, claimed: alias, doc }, emitter));
+    if (emitter.classes.has(alias)) continue;
+    const lines = doc === null ? [] : [comment(doc, "")];
+    lines.push(`${alias}: TypeAlias = ${type.runtime}`);
+    registry_define(emitter, lines.join("\n"), [...type.imports, "TypeAlias"]);
+  }
+  const union2 = render(payloads);
+  const unionLine = `${eventName} = ${union2.text}`;
+  if (union2.text === "NoReturn") {
+    const doc = docstring(`${registry} has no events.`, "    ");
+    registry_define(emitter, `class ${eventName}(TypedDict):
+    ${doc}`, ["TypedDict"]);
+  } else if (unionLine.length <= LINE_LENGTH || !union2.text.startsWith("Union[")) {
+    registry_define(emitter, unionLine, union2.imports);
+  } else {
+    const members = unionMembers(payloads).map((member) => `    ${member.text},`);
+    registry_define(emitter, [`${eventName} = Union[`, ...members, "]"].join("\n"), union2.imports);
+  }
+  const [example] = model.events;
+  const narrowing = model.discriminator === null || example === void 0 ? "" : `
+
+Narrow it with event[${pyString(model.discriminator.property)}] == ${pyString(eventKey(model, example))}.`;
+  return [
+    "",
+    docstring(`${registry} webhook types and a Standard Webhooks signature verifier.`, ""),
+    "",
+    ...importLines(emitter.imports),
+    ...emitter.definitions.flatMap((definition) => ["", "", definition]),
+    "",
+    "",
+    verifierCode(eventName, narrowing)
+  ].join("\n");
+}
+function convert3(schema, scope, emitter) {
+  if (schema === true) return [{ kind: "type", rendered: ANY2 }];
+  if (schema === false) return [];
+  if (!isRecord(schema)) return [{ kind: "type", rendered: ANY2 }];
+  if (typeof schema.$ref === "string") {
+    const name = emitter.refName(schema.$ref);
+    return [{ kind: "type", rendered: name === void 0 ? ANY2 : named2(name) }];
+  }
+  if (schema.const !== void 0) return valueType2(schema.const);
+  if (Array.isArray(schema.enum)) return schema.enum.flatMap(valueType2);
+  const variantScope = { hint: scope.hint };
+  const variants = schema.anyOf ?? schema.oneOf;
+  if (Array.isArray(variants)) return variants.flatMap((variant) => convert3(variant, variantScope, emitter));
+  if (Array.isArray(schema.allOf)) return allOfType2(schema, scope, emitter);
+  const { type } = schema;
+  if (Array.isArray(type)) {
+    return [...new Set(type)].flatMap((each) => convert3({ ...schema, type: each }, variantScope, emitter));
+  }
+  if (type === "object") return objectType3(schema, scope, emitter);
+  if (type === "array") return arrayType3(schema, scope, emitter);
+  if (type === "null") return [{ kind: "none" }];
+  if (typeof type !== "string") return [{ kind: "type", rendered: ANY2 }];
+  const primitive = primitiveTypes3.get(type);
+  return [{ kind: "type", rendered: primitive === void 0 ? ANY2 : rendered(primitive) }];
+}
+function valueType2(value) {
+  if (value === null) return [{ kind: "none" }];
+  if (typeof value === "string") return [{ kind: "literal", value: checked(pyString(value)) }];
+  if (typeof value === "boolean") return [{ kind: "literal", value: value ? "True" : "False" }];
+  if (typeof value === "number") {
+    if (Number.isSafeInteger(value)) return [{ kind: "literal", value: String(value) }];
+    return [{ kind: "type", rendered: rendered("float") }];
+  }
+  if (Array.isArray(value)) return [{ kind: "type", rendered: generic("List", [ANY2]) }];
+  return [{ kind: "type", rendered: generic("Dict", [rendered("str"), ANY2]) }];
+}
+function objectType3(schema, scope, emitter) {
+  const properties = isRecord(schema.properties) ? schema.properties : {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const extra = schema.additionalProperties;
+  const keys = Object.keys(properties);
+  if (keys.length === 0 && (extra === void 0 || extra === true)) {
+    return [{ kind: "type", rendered: generic("Dict", [rendered("str"), ANY2]) }];
+  }
+  if (keys.length === 0 && extra !== false) {
+    const value = render(convert3(extra, { hint: `${scope.hint}Value` }, emitter));
+    return [{ kind: "type", rendered: generic("Dict", [rendered("str"), value]) }];
+  }
+  const name = scope.claimed ?? emitter.claim(scope.hint);
+  emitter.classes.add(name);
+  const slot = emitter.definitions.push("") - 1;
+  const fields = keys.map((key) => ({
+    key,
+    isRequired: required.includes(key),
+    type: render(convert3(properties[key], { hint: `${name}${pascalCase(key) || "Property"}` }, emitter)),
+    description: getDescription(properties[key])
+  }));
+  const imports = /* @__PURE__ */ new Set(["TypedDict", ...fields.flatMap((field) => [...field.type.imports])]);
+  if (fields.some((field) => !field.isRequired)) imports.add("NotRequired");
+  const doc = scope.doc ?? null;
+  const code = fields.every((field) => isIdentifier(field.key)) ? classTypedDict(name, fields, doc) : functionalTypedDict(name, fields, doc);
+  registry_define(emitter, code, imports, slot);
+  return [{ kind: "type", rendered: named2(name) }];
+}
+function classTypedDict(name, fields, doc) {
+  const lines = [`class ${name}(TypedDict):`];
+  if (doc !== null) lines.push(`    ${docstring(doc, "    ")}`);
+  if (doc !== null && fields.length > 0) lines.push("");
+  if (doc === null && fields.length === 0) lines.push("    pass");
+  for (const field of fields) {
+    if (field.description !== null) lines.push(comment(field.description, "    "));
+    lines.push(`    ${field.key}: ${fieldType2(field, field.type.text)}`);
+  }
+  return lines.join("\n");
+}
+function functionalTypedDict(name, fields, doc) {
+  const lines = doc === null ? [] : [comment(doc, "")];
+  lines.push(`${name} = TypedDict(`, `    "${name}",`, "    {");
+  for (const field of fields) {
+    if (field.description !== null) lines.push(comment(field.description, "        "));
+    lines.push(`        ${pyString(field.key)}: ${fieldType2(field, field.type.runtime)},`);
+  }
+  lines.push("    },", ")");
+  return lines.join("\n");
+}
+function fieldType2(field, text) {
+  return field.isRequired ? text : `NotRequired[${text}]`;
+}
+function arrayType3(schema, scope, emitter) {
+  const { prefixItems, items, maxItems } = schema;
+  const itemScope = { hint: `${scope.hint}Item` };
+  if (!Array.isArray(prefixItems)) {
+    const item = items === void 0 ? ANY2 : render(convert3(items, itemScope, emitter));
+    return [{ kind: "type", rendered: generic("List", [item]) }];
+  }
+  const max = typeof maxItems === "number" ? maxItems : Number.POSITIVE_INFINITY;
+  const distinct = [...new Set(prefixItems.slice(0, Math.max(0, max)))];
+  const members = distinct.map((item) => convert3(item, itemScope, emitter));
+  const isClosed = items === void 0 || items === false || max <= prefixItems.length;
+  const rest = isClosed ? [] : convert3(items, itemScope, emitter);
+  const elements = [...members.flat(), ...rest];
+  return [{ kind: "type", rendered: generic("List", [elements.length === 0 ? ANY2 : render(elements)]) }];
+}
+function allOfType2(schema, scope, emitter) {
+  const { allOf, ...own } = schema;
+  const parts = Array.isArray(allOf) ? allOf : [];
+  const objects = [...isRecord(own.properties) ? [own] : [], ...parts].filter((part) => part !== true);
+  if (!objects.every(isMergeable) || !objects.some((part) => part.type === "object" || isRecord(part.properties))) {
+    return [{ kind: "type", rendered: ANY2 }];
+  }
+  const properties = /* @__PURE__ */ new Map();
+  const required = /* @__PURE__ */ new Set();
+  for (const part of objects) {
+    for (const [key, property] of Object.entries(isRecord(part.properties) ? part.properties : {})) {
+      properties.set(key, [...properties.get(key) ?? [], property]);
+    }
+    if (Array.isArray(part.required)) part.required.forEach((key) => required.add(key));
+  }
+  const merged = {
+    type: "object",
+    properties: Object.fromEntries(
+      [...properties].map(([key, schemas]) => [key, schemas.length === 1 ? schemas[0] : { allOf: schemas }])
+    ),
+    required: [...required],
+    additionalProperties: objects.every((part) => part.additionalProperties === false) ? false : void 0
+  };
+  return objectType3(merged, scope, emitter);
+}
+function isMergeable(part) {
+  if (!isRecord(part) || part.type !== void 0 && part.type !== "object") return false;
+  return ["$ref", "anyOf", "oneOf", "allOf", "const", "enum"].every((keyword) => part[keyword] === void 0);
+}
+function render(type) {
+  const members = unionMembers(type);
+  const [first, second] = members;
+  if (first === void 0) return rendered("NoReturn", ["NoReturn"]);
+  if (second === void 0) return first;
+  if (second === NONE && members.length === 2) return generic("Optional", [first]);
+  return generic("Union", members);
+}
+function unionMembers(type) {
+  const parts = /* @__PURE__ */ new Map();
+  const literals = /* @__PURE__ */ new Set();
+  let hasNone = false;
+  for (const member of type) {
+    if (member.kind === "none") {
+      hasNone = true;
+    } else if (member.kind === "literal") {
+      if (!parts.has("")) parts.set("", null);
+      literals.add(member.value);
+    } else {
+      if (member.rendered.text === "Any") return [ANY2];
+      parts.set(member.rendered.text, member.rendered);
+    }
+  }
+  const members = [...parts.values()].map(
+    (part) => part ?? rendered(checked(`Literal[${[...literals].join(", ")}]`), ["Literal"])
+  );
+  return hasNone ? [...members, NONE] : members;
+}
+function generic(head, args) {
+  const depth = 1 + Math.max(0, ...args.map((arg) => arg.depth));
+  if (depth > MAX_NESTING) return ANY2;
+  return {
+    text: checked(`${head}[${args.map((arg) => arg.text).join(", ")}]`),
+    runtime: checked(`${head}[${args.map((arg) => arg.runtime).join(", ")}]`),
+    imports: /* @__PURE__ */ new Set([head, ...args.flatMap((arg) => [...arg.imports])]),
+    depth
+  };
+}
+function rendered(text, imports = []) {
+  return { text, runtime: text, imports: new Set(imports), depth: 0 };
+}
+function named2(name) {
+  return { text: name, runtime: `"${name}"`, imports: /* @__PURE__ */ new Set(), depth: 0 };
+}
+function checked(text) {
+  assertSize(text.length);
+  return text;
+}
+function assertSize(length) {
+  if (length <= MAX_OUTPUT_LENGTH) return;
+  const limit = MAX_OUTPUT_LENGTH.toLocaleString("en-US");
+  throw new Error(`a schema generates over ${limit} characters of types`);
+}
+function registry_define(emitter, code, imports, slot) {
+  emitter.size += code.length;
+  assertSize(emitter.size);
+  for (const name of imports) emitter.imports.add(name);
+  if (slot === void 0) emitter.definitions.push(code);
+  else emitter.definitions[slot] = code;
+}
+function isIdentifier(key) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && !PYTHON_KEYWORDS.has(key) && !key.startsWith("__");
+}
+function pyString(text) {
+  return `"${text.replace(/[\\"]/g, "\\$&").replace(UNSAFE, escapeCodePoint)}"`;
+}
+function docstring(text, pad) {
+  const lines = text.split(/\r\n|\r|\n/).map(
+    (line) => line.trimEnd().replace(/\\/g, "\\\\").replace(/"(?="|$)/g, '\\"').replace(UNSAFE, escapeCodePoint)
+  );
+  if (lines.length === 1) return `"""${lines[0]}"""`;
+  const rest = lines.slice(1).map((line) => line ? `${pad}${line}` : "");
+  return [`"""${lines[0]}`, ...rest, `${pad}"""`].join("\n");
+}
+function comment(text, pad) {
+  return text.split(/\r\n|\r|\n/).map((line) => {
+    const escaped = line.trimEnd().replace(UNSAFE, escapeCodePoint);
+    return escaped.trim() ? `${pad}#: ${escaped}` : `${pad}#:`;
+  }).join("\n");
+}
+function escapeCodePoint(char) {
+  const short = shortEscapes.get(char);
+  if (short !== void 0) return short;
+  const code = char.codePointAt(0) ?? 0;
+  if (code <= 255) return `\\x${code.toString(16).padStart(2, "0")}`;
+  if (code <= 65535) return `\\u${code.toString(16).padStart(4, "0")}`;
+  return `\\U${code.toString(16).padStart(8, "0")}`;
+}
+function importLines(imports) {
+  const typing = [...imports].filter((name) => !VERSIONED_IMPORTS.has(name)).sort();
+  const versioned = [...imports].filter((name) => VERSIONED_IMPORTS.has(name)).sort();
+  const modules = ["base64", "hashlib", "hmac", "json", "re", ...versioned.length > 0 ? ["sys"] : [], "time"];
+  const fromTyping = `from typing import ${typing.join(", ")}`;
+  const lines = [
+    "from __future__ import annotations",
+    "",
+    ...modules.map((module) => `import ${module}`),
+    ...fromTyping.length <= LINE_LENGTH ? [fromTyping] : ["from typing import (", ...typing.map((name) => `    ${name},`), ")"]
+  ];
+  if (versioned.length === 0) return lines;
+  return [
+    ...lines,
+    "",
+    "if sys.version_info >= (3, 11):",
+    `    from typing import ${versioned.join(", ")}`,
+    "else:",
+    `    from typing_extensions import ${versioned.join(", ")}`
+  ];
+}
+function verifierCode(eventName, narrowing) {
+  const verifyDoc = docstring(
+    `Verifies a Standard Webhooks signature and returns the parsed payload.
+
+payload must be the raw request body: re-serialized JSON won't match the
+signature. The signature proves who sent the payload, not its shape, so it
+isn't validated against the types. Raises WebhookVerificationError.${narrowing}`,
+    "    "
+  );
+  return `VerifyFailure = Literal[
+    "missing_headers",
+    "invalid_id",
+    "invalid_timestamp",
+    "timestamp_out_of_tolerance",
+    "invalid_signature",
+    "invalid_secret",
+    "invalid_json",
+]
+
+# Cap on signatures compared per request: the header is attacker-controlled.
+_MAX_SIGNATURE_CANDIDATES = 8
+_BASE64 = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+_TIMESTAMP = re.compile(r"[+-]?(?:[0-9]+[.]?[0-9]*|[.][0-9]+)(?:[eE][+-]?[0-9]+)?")
+
+
+class WebhookVerificationError(Exception):
+    """Raised by verify(). reason says why."""
+
+    def __init__(self, reason: VerifyFailure) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def verify(
+    payload: Union[bytes, str],
+    headers: Mapping[str, str],
+    secret: str,
+    *,
+    tolerance_sec: int = 300,
+) -> ${eventName}:
+    ${verifyDoc}
+    key = _secret_key(secret)
+    # Written so NaN fails too: it would accept every replay.
+    if not tolerance_sec >= 0:
+        raise ValueError(f"tolerance_sec must be >= 0, got {tolerance_sec}")
+    webhook_id = _header(headers, "id")
+    timestamp_header = _header(headers, "timestamp")
+    signature_header = _header(headers, "signature")
+    if not webhook_id or not timestamp_header or not signature_header:
+        raise WebhookVerificationError("missing_headers")
+    # A "." in the id makes "{id}.{timestamp}.{payload}" ambiguous: shifting the
+    # boundaries yields another triple with the same valid signature.
+    if "." in webhook_id:
+        raise WebhookVerificationError("invalid_id")
+    timestamp = _timestamp(timestamp_header)
+    if timestamp is None:
+        raise WebhookVerificationError("invalid_timestamp")
+    if abs(int(time.time()) - timestamp) > tolerance_sec:
+        raise WebhookVerificationError("timestamp_out_of_tolerance")
+    body = payload.encode() if isinstance(payload, str) else payload
+    signed = f"{webhook_id}.{timestamp}.".encode() + body
+    expected = hmac.new(key, signed, hashlib.sha256).digest()
+    if not _has_signature(expected, signature_header):
+        raise WebhookVerificationError("invalid_signature")
+    if isinstance(payload, bytes):
+        payload = payload.decode("utf-8-sig", "replace")
+    try:
+        value = json.loads(payload, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        raise WebhookVerificationError("invalid_json") from None
+    return cast(${eventName}, value)
+
+
+def _secret_key(secret: str) -> bytes:
+    # A "whsec_" secret that isn't base64 must not fall back to the literal
+    # string: that key would be publicly guessable.
+    if secret.startswith("whsec_"):
+        key = _base64(secret.removeprefix("whsec_"))
+    else:
+        key = secret.encode()
+    if not key:
+        raise WebhookVerificationError("invalid_secret")
+    return key
+
+
+def _header(headers: Mapping[str, str], name: str) -> Optional[str]:
+    for prefix in ("webhook-", "svix-"):
+        value = _lookup(headers, prefix + name)
+        if value is not None:
+            return value
+    return None
+
+
+def _lookup(headers: Mapping[str, str], name: str) -> Optional[str]:
+    value = headers.get(name)
+    if value is not None:
+        return value
+    # Plain dicts keep whatever casing they were built with. isinstance skips
+    # werkzeug's Headers, which iterates (key, value) pairs.
+    for key in headers:
+        if isinstance(key, str) and key.lower() == name:
+            return headers[key]
+    return None
+
+
+def _timestamp(text: str) -> Optional[int]:
+    # Decimal text read the way JavaScript's Number() reads it, so a sender's
+    # "1.7e9" is signed as "1700000000" by both verifiers.
+    text = text.strip()
+    if not _TIMESTAMP.fullmatch(text):
+        return None
+    value = float(text)
+    return int(value) if value.is_integer() else None
+
+
+def _has_signature(expected: bytes, signature_header: str) -> bool:
+    candidates = 0
+    for part in signature_header.split(" "):
+        if candidates >= _MAX_SIGNATURE_CANDIDATES:
+            return False
+        version, _, rest = part.partition(",")
+        signature, _, _ = rest.partition(",")
+        if version != "v1" or not signature:
+            continue
+        candidates += 1
+        signature_bytes = _base64(signature)
+        if signature_bytes is None:
+            continue
+        if hmac.compare_digest(expected, signature_bytes):
+            return True
+    return False
+
+
+def _base64(text: str) -> Optional[bytes]:
+    if len(text) % 4 or not _BASE64.fullmatch(text):
+        return None
+    return base64.b64decode(text)
+
+
+def _reject_constant(name: str) -> NoReturn:
+    # json.loads accepts NaN and Infinity, which aren't JSON.
+    raise ValueError(name)
+`;
+}
+
+// src/registry/typescript.ts
+function typescriptCode({ registry, name, model }) {
+  const base = typeName(name);
+  const mapName = `${base}EventMap`;
   const eventsName = `${base}Events`;
   const eventName = `${base}Event`;
-  const names = uniqueNames([eventsName, eventName, "Record", "Extract"]);
+  const names = uniqueNames([mapName, eventsName, eventName, "Record"]);
   const aliases = new Map(
-    Object.keys(schemas).sort().map((key) => [key, names.claim(`${base}${pascalCase(key) || "Schema"}`)])
+    Object.keys(model.schemas).sort().map((key) => [key, names.claim(`${base}${pascalCase(key) || "Schema"}`)])
   );
   const refName = (ref) => {
     const key = componentName(ref);
     return key === null ? void 0 : aliases.get(key);
   };
-  const members = Object.keys(webhooks).sort().map((event) => eventMember(event, eventData(event, webhooks[event]), refName));
-  const union2 = members.length > 0 ? `
-${members.join("\n")}` : " never";
+  const members = model.events.map((event) => {
+    const type = jsonSchemaToTs(event.payload, { refName, indent: 1 });
+    const line = `  ${JSON.stringify(eventKey(model, event))}: ${type};`;
+    return event.description === void 0 ? line : `${jsDoc(event.description, "  ")}
+${line}`;
+  });
+  const map = members.length > 0 ? `{
+${members.join("\n")}
+}` : "Record<never, never>";
   const lines = [
     "",
-    `export type ${eventsName} =${union2};`,
+    `export type ${mapName} = ${map};`,
     "",
-    `export type ${eventName}<K extends ${eventsName}["event"]> = Extract<${eventsName}, { event: K }>;`
+    `export type ${eventsName} = ${mapName}[keyof ${mapName}];`,
+    "",
+    `export type ${eventName}<K extends keyof ${mapName}> = ${mapName}[K];`
   ];
-  for (const [key, alias] of aliases) {
-    lines.push("", `export type ${alias} = ${jsonSchemaToTs(schemas[key], { refName })};`);
-  }
-  const body = `${lines.join("\n")}
-`;
-  if (body.length > MAX_OUTPUT_LENGTH) {
-    throw new Error(
-      `${registry}@${version}: the types would be over ${MAX_OUTPUT_LENGTH.toLocaleString("en-US")} characters`
+  if (model.discriminator !== null) {
+    const property = JSON.stringify(model.discriminator.property);
+    lines.unshift("", 'import * as typedhook from "@typedhook/verify";');
+    lines.push(
+      "",
+      jsDoc(`Verifies ${registry} webhooks and routes them by ${property}.`, ""),
+      `export function create${base}Webhooks(secret: string, options?: typedhook.WebhooksOptions) {`,
+      `  return typedhook.createWebhooks<${mapName}>(secret, { ...options, discriminator: ${property} });`,
+      "}"
     );
   }
-  const source = `${registry}@${version} (doc ${hash}, body ${await hashText(body)})`;
-  return `// Generated by typedhook pull v${GENERATOR_VERSION} from ${source}. Do not edit.
+  for (const [key, alias] of aliases) {
+    const description = getDescription(model.schemas[key]);
+    lines.push("");
+    if (description !== null) lines.push(jsDoc(description, ""));
+    lines.push(`export type ${alias} = ${jsonSchemaToTs(model.schemas[key], { refName })};`);
+  }
+  return `${lines.join("\n")}
+`;
+}
+
+// src/registry/generate.ts
+var GENERATOR_VERSION = 3;
+var LANGS = (/* unused pure expression or super */ null && (["typescript", "python", "go"]));
+var generators = {
+  typescript: typescriptCode,
+  python: pythonCode,
+  go: goCode
+};
+var headerLines = {
+  typescript: (source) => `// Generated by typedhook pull v${GENERATOR_VERSION} from ${source}. Do not edit.`,
+  python: (source) => `# Generated by typedhook pull v${GENERATOR_VERSION} from ${source}. Do not edit.`,
+  go: (source) => `// Code generated by typedhook pull v${GENERATOR_VERSION} from ${source}. DO NOT EDIT.`
+};
+var HEADER = /^(?:\/\/|#) (?:Code generated|Generated) by typedhook pull v(\d+) from ([^\s@]+)@(\S+) \(doc (sha256-[A-Za-z0-9+/]+={0,2}), body (sha256-[A-Za-z0-9+/]+={0,2})\)\. (?:Do not edit|DO NOT EDIT)\.\n/;
+var fileNames = {
+  typescript: (name) => `${name}.ts`,
+  python: (name) => `${pythonModuleName(name)}.py`,
+  go: (name) => `${goPackageName(name)}/${goPackageName(name)}.go`
+};
+function generatedFileName(lang, name) {
+  return fileNames[lang](name);
+}
+var langAliases = /* @__PURE__ */ new Map([
+  ["typescript", "typescript"],
+  ["ts", "typescript"],
+  ["python", "python"],
+  ["py", "python"],
+  ["go", "go"],
+  ["golang", "go"]
+]);
+function findLang(text) {
+  return langAliases.get(text.toLowerCase()) ?? null;
+}
+function parseLang(text) {
+  const lang = findLang(text);
+  if (lang === null) throw new Error(`unknown language "${text}", expected one of ${LANGS.join(", ")}`);
+  return lang;
+}
+function codegenContext({ registry, version, hash, document }) {
+  const { owner, name } = parseRegistry(registry);
+  if (!isStrictSemver(version)) throw new Error(`${registry}: invalid version ${JSON.stringify(version)}`);
+  if (!isHash(hash)) throw new Error(`${registry}@${version}: invalid hash ${JSON.stringify(hash)}`);
+  const model = readRegistryDocument(`${registry}@${version}`, document);
+  return { registry, owner, name, version, model };
+}
+async function generateCode(lang, input) {
+  const context = codegenContext(input);
+  const body = generators[lang](context);
+  if (body.length > MAX_OUTPUT_LENGTH) {
+    throw new Error(
+      `${input.registry}@${input.version}: the code would be over ${MAX_OUTPUT_LENGTH.toLocaleString("en-US")} characters`
+    );
+  }
+  const source = `${input.registry}@${input.version} (doc ${input.hash}, body ${await hashText(body)})`;
+  return `${headerLines[lang](source)}
 ${body}`;
 }
 function readGeneratedHeader(text) {
@@ -32203,55 +33730,529 @@ function readGeneratedHeader(text) {
     body: lf.slice(header.length)
   };
 }
-function eventData(name, webhook) {
-  const data = getPath(webhook, [
-    "post",
-    "requestBody",
-    "content",
-    "application/json",
-    "schema",
-    "properties",
-    "data"
-  ]);
-  if (data === void 0) throw new Error(`webhook "${name}" has no request body with a data property`);
-  return data;
+
+// src/registry/diff.ts
+var BUMP_RANK = { patch: 1, minor: 2, major: 3 };
+var PRIMITIVES = /* @__PURE__ */ new Set(["string", "number", "integer", "boolean", "null"]);
+function diffDocuments(before, after) {
+  const old = readRegistryDocument("previous version", before);
+  const next = readRegistryDocument("new version", after);
+  const changes = [];
+  const oldEvents = new Map(old.events.map((event) => [event.name, event]));
+  const nextEvents = new Map(next.events.map((event) => [event.name, event]));
+  for (const event of old.events) {
+    if (!nextEvents.has(event.name)) changes.push({ bump: "major", event: event.name, path: "", message: "removed" });
+  }
+  const oldProperty = old.discriminator?.property ?? null;
+  const nextProperty = next.discriminator?.property ?? null;
+  if (oldProperty !== nextProperty) {
+    const message = nextProperty === null ? `events are no longer named by "${oldProperty}"` : `events are now named by "${nextProperty}"${oldProperty === null ? "" : ` instead of "${oldProperty}"`}`;
+    changes.push({ bump: "major", event: "", path: "", message });
+  }
+  for (const event of next.events) {
+    const previous = oldEvents.get(event.name);
+    if (previous === void 0) {
+      changes.push({ bump: "minor", event: event.name, path: "", message: "added" });
+      continue;
+    }
+    if (oldProperty === nextProperty && eventKey(old, previous) !== eventKey(next, event)) {
+      changes.push({ bump: "major", event: event.name, path: "", message: `is now keyed "${eventKey(next, event)}"` });
+    }
+    const compare = comparer(old, next, event.name, changes);
+    compare(previous.payload, event.payload, "");
+  }
+  for (const key of Object.keys(old.schemas)) {
+    if (!Object.hasOwn(next.schemas, key)) changes.push({ bump: "major", event: "", path: key, message: "type was removed" });
+  }
+  if (changes.length === 0 && canonicalJson(withoutVersion(before)) !== canonicalJson(withoutVersion(after))) {
+    changes.push({ bump: "patch", event: "", path: "", message: "title, descriptions or examples changed" });
+  }
+  return { bump: highestBump(changes), changes };
 }
-function eventMember(name, data, refName) {
+function nextVersion(previous, bump) {
+  if (!isStrictSemver(previous)) throw new Error(`invalid version ${JSON.stringify(previous)}`);
+  const [core = "", prerelease] = previous.split(/-(.*)/s);
+  if (prerelease !== void 0) return core;
+  const [major, minor, patch] = core.split(".").map(Number);
+  const next = {
+    major: `${major + 1}.0.0`,
+    minor: `${major}.${minor + 1}.0`,
+    patch: `${major}.${minor}.${patch + 1}`
+  };
+  return next[bump];
+}
+function versionBump(previous, version) {
+  const [a, b] = [previous, version].map((text) => text.split("-")[0].split(".").map(Number));
+  if (b[0] !== a[0]) return b[0] > a[0] ? "major" : null;
+  if (b[1] !== a[1]) return b[1] > a[1] ? "minor" : null;
+  if (b[2] !== a[2]) return b[2] > a[2] ? "patch" : null;
+  return null;
+}
+function isBumpEnough(made, needed) {
+  if (needed === null) return true;
+  return made !== null && BUMP_RANK[made] >= BUMP_RANK[needed];
+}
+function highestBump(changes) {
+  let highest = null;
+  for (const { bump } of changes) if (highest === null || BUMP_RANK[bump] > BUMP_RANK[highest]) highest = bump;
+  return highest;
+}
+function withoutVersion(document) {
+  if (!isRecord(document) || !isRecord(document.info)) return document;
+  const { version, ...info } = document.info;
+  return { ...document, info };
+}
+function comparer(old, next, event, changes) {
+  const comparing = /* @__PURE__ */ new Set();
+  function change(bump, path, message) {
+    changes.push({ bump, event, path, message });
+  }
+  function compare(before, after, path) {
+    const pairKey = `${refKey(before)}|${refKey(after)}`;
+    if (comparing.has(pairKey)) return;
+    if (pairKey !== "|") comparing.add(pairKey);
+    compareShapes(shapes(old, before), shapes(next, after), path);
+    comparing.delete(pairKey);
+  }
+  function compareShapes(oldMembers, newMembers, path) {
+    if (oldMembers.some((shape) => shape.kind === "any")) return;
+    if (newMembers.some((shape) => shape.kind === "any")) {
+      change("major", path, "is no longer typed");
+      return;
+    }
+    const variants = variantPairing(oldMembers, newMembers);
+    const matched = /* @__PURE__ */ new Set();
+    for (const shape of newMembers) {
+      const counterpart = counterpartOf(shape, oldMembers, matched, variants);
+      if (counterpart === void 0) {
+        const tag = variants === null ? null : variants.tagOf(next, shape);
+        if (tag !== null) change("minor", path, `has a new variant ${tag}`);
+        else change(...widened(shape, oldMembers, path));
+        continue;
+      }
+      matched.add(counterpart);
+      if (counterpart.kind === "object" && shape.kind === "object") compareObjects(counterpart, shape, path);
+      if (counterpart.kind === "array" && shape.kind === "array") compare(counterpart.items, shape.items, `${path}[]`);
+      if (counterpart.kind === "tuple" && shape.kind === "tuple") compareTuples(counterpart, shape, path);
+    }
+    for (const shape of oldMembers) {
+      if (matched.has(shape)) continue;
+      const tag = variants === null ? null : variants.tagOf(old, shape);
+      change("minor", path, tag === null ? `can no longer be ${describe(shape)}` : `no longer has the variant ${tag}`);
+    }
+  }
+  function variantPairing(oldMembers, newMembers) {
+    const oldObjects = oldMembers.filter(isObjectShape);
+    const newObjects = newMembers.filter(isObjectShape);
+    if (oldObjects.length < 2 && newObjects.length < 2) return null;
+    const property = unionDiscriminator(old, oldObjects) ?? unionDiscriminator(next, newObjects);
+    if (property === null) return null;
+    const pinsIt = (side, objects) => objects.length === 1 ? pinnedValues(side, objects[0]).has(property) : unionDiscriminator(side, objects) === property;
+    if (!pinsIt(old, oldObjects) || !pinsIt(next, newObjects)) return null;
+    return {
+      tagOf(side, shape) {
+        const value = shape.kind === "object" ? pinnedValues(side, shape).get(property) : void 0;
+        return value === void 0 ? null : `${property}=${value}`;
+      }
+    };
+  }
+  function counterpartOf(shape, oldMembers, matched, variants) {
+    const candidates = oldMembers.filter((candidate) => accepts(candidate, shape));
+    const unmatched = candidates.filter((candidate) => !matched.has(candidate));
+    if (shape.kind !== "object") return unmatched[0] ?? candidates[0];
+    if (variants === null) return unmatched[0];
+    const tag = variants.tagOf(next, shape);
+    if (tag === null) return void 0;
+    return unmatched.find((candidate) => variants.tagOf(old, candidate) === tag);
+  }
+  function compareObjects(before, after, path) {
+    for (const [key, property] of before.properties) {
+      const at2 = path === "" ? key : `${path}.${key}`;
+      const counterpart = after.properties.get(key);
+      if (counterpart === void 0) {
+        change("major", at2, "was removed");
+        continue;
+      }
+      if (property.isRequired && !counterpart.isRequired) change("major", at2, "is now optional");
+      if (!property.isRequired && counterpart.isRequired) change("minor", at2, "is now always sent");
+      compare(property.schema, counterpart.schema, at2);
+    }
+    for (const [key, property] of after.properties) {
+      if (before.properties.has(key)) continue;
+      const at2 = path === "" ? key : `${path}.${key}`;
+      change("minor", at2, property.isRequired ? "was added" : "was added (optional)");
+    }
+    const at = path === "" ? "[key]" : `${path}[key]`;
+    if (before.extra !== null && after.extra === null) change("major", at, "other keys are no longer allowed");
+    if (before.extra === null && after.extra !== null) change("minor", at, "other keys are now allowed");
+    if (before.extra !== null && after.extra !== null) compare(before.extra, after.extra, at);
+  }
+  function compareTuples(before, after, path) {
+    if (before.items.length !== after.items.length) {
+      change("major", path, `has ${after.items.length} items instead of ${before.items.length}`);
+      return;
+    }
+    before.items.forEach((item, index) => {
+      const at = `${path}[${index}]`;
+      const wasRequired = index < before.required;
+      const isRequired = index < after.required;
+      if (wasRequired && !isRequired) change("major", at, "is now optional");
+      if (!wasRequired && isRequired) change("minor", at, "is now always sent");
+      compare(item, after.items[index], at);
+    });
+    if (before.rest === null && after.rest !== null) change("major", path, "can now have more items");
+    if (before.rest !== null && after.rest === null) change("minor", path, "can no longer have more items");
+    if (before.rest !== null && after.rest !== null) compare(before.rest, after.rest, `${path}[]`);
+  }
+  return compare;
+}
+function accepts(expected, actual) {
+  if (expected.kind === "literal") return actual.kind === "literal" && actual.value === expected.value;
+  const kind = actual.kind === "literal" ? literalKind(actual.value) : actual.kind;
+  if (expected.kind === "number") return kind === "number" || kind === "integer";
+  return expected.kind === kind;
+}
+function widened(shape, oldMembers, path) {
+  const kind = shape.kind === "literal" ? literalKind(shape.value) : null;
+  const isEnum = kind !== null && kind !== "null" && oldMembers.some((member) => member.kind === "literal" && literalKind(member.value) === kind);
+  if (isEnum) return ["minor", path, `has a new value ${describe(shape)}`];
+  return ["major", path, `can now be ${describe(shape)}`];
+}
+function describe(shape) {
+  if (shape.kind === "literal") return shape.value;
+  if (shape.kind === "integer") return "an integer";
+  if (shape.kind === "array" || shape.kind === "object") return `an ${shape.kind}`;
+  if (shape.kind === "tuple") return "a tuple";
+  if (shape.kind === "null") return "null";
+  return `a ${shape.kind}`;
+}
+function literalKind(json) {
+  const value = JSON.parse(json);
+  if (value === null) return "null";
+  if (typeof value === "number") return Number.isInteger(value) ? "integer" : "number";
+  return typeof value;
+}
+function refKey(schema) {
+  return isRecord(schema) && typeof schema.$ref === "string" ? schema.$ref : "";
+}
+function shapes(side, schema, seen = /* @__PURE__ */ new Set()) {
+  if (schema === true || !isRecord(schema)) return [{ kind: "any" }];
+  if (typeof schema.$ref === "string") {
+    const key = componentName(schema.$ref);
+    if (key === null || !Object.hasOwn(side.schemas, key) || seen.has(key)) return [{ kind: "any" }];
+    return shapes(side, side.schemas[key], /* @__PURE__ */ new Set([...seen, key]));
+  }
+  if (schema.const !== void 0) return [{ kind: "literal", value: JSON.stringify(schema.const) }];
+  if (Array.isArray(schema.enum)) return schema.enum.map((value) => ({ kind: "literal", value: JSON.stringify(value) }));
+  const variants = schema.anyOf ?? schema.oneOf;
+  if (Array.isArray(variants)) return variants.flatMap((variant) => shapes(side, variant, seen));
+  if (Array.isArray(schema.allOf)) return mergeAllOf(side, schema.allOf, seen);
+  const { type } = schema;
+  if (Array.isArray(type)) return [...new Set(type)].flatMap((each) => shapes(side, { ...schema, type: each }, seen));
+  if (type === "object") return [objectShape(schema)];
+  if (type === "array" && Array.isArray(schema.prefixItems)) {
+    const max = typeof schema.maxItems === "number" ? schema.maxItems : Number.POSITIVE_INFINITY;
+    const items = schema.prefixItems.slice(0, Math.max(0, max));
+    const required = typeof schema.minItems === "number" ? Math.min(schema.minItems, items.length) : items.length;
+    const isClosed = schema.items === void 0 || schema.items === false || max <= schema.prefixItems.length;
+    return [{ kind: "tuple", items, required, rest: isClosed ? null : schema.items }];
+  }
+  if (type === "array") return [{ kind: "array", items: schema.items ?? true }];
+  if (typeof type === "string" && isPrimitive(type)) return [{ kind: type }];
+  return [{ kind: "any" }];
+}
+function isPrimitive(type) {
+  return PRIMITIVES.has(type);
+}
+function objectShape(schema) {
+  const properties = isRecord(schema.properties) ? schema.properties : {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const { additionalProperties } = schema;
+  const isOpen = additionalProperties === void 0 && Object.keys(properties).length === 0;
+  const extra = additionalProperties === void 0 || additionalProperties === false ? null : additionalProperties;
+  return {
+    kind: "object",
+    properties: new Map(
+      Object.entries(properties).map(([key, property]) => [key, { schema: property, isRequired: required.includes(key) }])
+    ),
+    extra: isOpen ? true : extra
+  };
+}
+function isObjectShape(shape) {
+  return shape.kind === "object";
+}
+function unionDiscriminator(side, objects) {
+  if (objects.length < 2) return null;
+  const pinned = objects.map((object) => pinnedValues(side, object));
+  const properties = [...new Set(pinned.flatMap((values) => [...values.keys()]))].filter(
+    (property) => pinned.every((values) => values.has(property)) && new Set(pinned.map((values) => values.get(property))).size === objects.length
+  );
+  return properties.sort((a, b) => nameRank(a) - nameRank(b))[0] ?? null;
+}
+function pinnedValues(side, shape) {
+  const pinned = /* @__PURE__ */ new Map();
+  for (const [key, property] of shape.properties) {
+    const [only, ...others] = shapes(side, property.schema);
+    if (only?.kind === "literal" && others.length === 0) pinned.set(key, only.value);
+  }
+  return pinned;
+}
+function mergeAllOf(side, parts, seen) {
+  const [only, ...others] = parts;
+  if (others.length === 0) return shapes(side, only, seen);
+  const members = parts.map((part) => shapes(side, part, seen));
+  if (!members.every((shapesOfPart) => shapesOfPart.length === 1 && shapesOfPart[0]?.kind === "object")) {
+    return [{ kind: "any" }];
+  }
+  const properties = /* @__PURE__ */ new Map();
+  for (const [shape] of members) {
+    if (shape?.kind !== "object") continue;
+    for (const [key, property] of shape.properties) {
+      const existing = properties.get(key);
+      properties.set(key, { schema: property.schema, isRequired: property.isRequired || existing?.isRequired === true });
+    }
+  }
+  return [{ kind: "object", properties, extra: null }];
+}
+
+// src/registry/infer.ts
+var ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+function inferSchema(samples) {
+  return { ...infer(samples), examples: samples.slice(0, 3) };
+}
+function infer(values) {
+  if (values.length === 0) return {};
+  const groups = /* @__PURE__ */ new Map();
+  for (const value of values) {
+    const kind = kindOf(value);
+    groups.set(kind, [...groups.get(kind) ?? [], value]);
+  }
+  const integers = groups.get("integer");
+  const numbers = groups.get("number");
+  if (integers && numbers) {
+    groups.set("number", [...numbers, ...integers]);
+    groups.delete("integer");
+  }
+  const schemas = [...groups].map(([kind, members]) => inferKind(kind, members));
+  const [only] = schemas;
+  if (schemas.length === 1 && only) return only;
+  if (schemas.every(isPlainType)) return { type: schemas.map((schema) => schema.type) };
+  return { anyOf: schemas };
+}
+function inferKind(kind, values) {
+  if (kind === "array") return { type: "array", items: infer(values.flatMap((value) => Array.isArray(value) ? value : [])) };
+  if (kind === "object") return inferObject(values.filter(isRecord));
+  if (kind === "string" && values.every((value) => typeof value === "string" && ISO_DATE_TIME.test(value))) {
+    return { type: "string", format: "date-time" };
+  }
+  return { type: kind };
+}
+function inferObject(objects) {
+  const valuesByKey = /* @__PURE__ */ new Map();
+  for (const object of objects) {
+    for (const [key, value] of Object.entries(object)) valuesByKey.set(key, [...valuesByKey.get(key) ?? [], value]);
+  }
+  const properties = Object.fromEntries([...valuesByKey].map(([key, values]) => [key, infer(values)]));
+  const required = [...valuesByKey].filter(([, values]) => values.length === objects.length).map(([key]) => key);
+  return { type: "object", properties, required };
+}
+function kindOf(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "number") return Number.isInteger(value) ? "integer" : "number";
+  return typeof value;
+}
+function isPlainType(schema) {
+  return Object.keys(schema).length === 1 && typeof schema.type === "string";
+}
+
+// src/registry/sdk.ts
+var VERIFY_RANGE = "^0.3.0";
+var defaultPackageNames = {
+  typescript: (owner, name) => `@${owner}/${name}-webhooks`,
+  python: (owner, name) => `${owner}-${name}-webhooks`,
+  go: (owner, name) => `github.com/${owner}/${name}-webhooks-go`
+};
+var packagers = {
+  typescript: typescriptPackage,
+  python: pythonPackage,
+  go: goPackage
+};
+async function generatePackage(lang, input, options = {}) {
+  const { owner, name, model } = codegenContext(input);
+  const packageName = options.packageName ?? defaultPackageNames[lang](owner, name);
+  const title = options.title ?? documentTitle(input.document) ?? name;
+  const code = await generateCode(lang, input);
+  return { packageName, files: packagers[lang]({ input, owner, name, title, model, packageName, code }) };
+}
+function typescriptPackage({ input, name, title, model, packageName, code }) {
+  const packageJson = {
+    name: packageName,
+    version: input.version,
+    description: `Typed webhooks for ${title}, generated by typedhook`,
+    type: "module",
+    main: "./dist/index.js",
+    types: "./dist/index.d.ts",
+    exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+    files: ["dist"],
+    scripts: { build: "tsc", prepublishOnly: "tsc" },
+    dependencies: { "@typedhook/verify": VERIFY_RANGE },
+    devDependencies: { typescript: "^5.7.0" }
+  };
+  const tsconfig = {
+    compilerOptions: {
+      target: "ES2022",
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      declaration: true,
+      outDir: "dist",
+      strict: true,
+      skipLibCheck: true
+    },
+    include: ["src"]
+  };
+  const base = typeName(name);
+  const usage = model.discriminator ? [
+    `import { create${base}Webhooks } from "${packageName}";`,
+    "",
+    `const webhooks = create${base}Webhooks(process.env.WEBHOOK_SECRET!);`,
+    "",
+    "// Next.js, Hono, Remix, Workers, Bun",
+    "export const POST = webhooks.handler({",
+    `  ${JSON.stringify(firstKey(model))}: async (payload) => {`,
+    "    // payload is typed for this event",
+    "  },",
+    "});"
+  ] : [
+    'import { createVerifier } from "@typedhook/verify";',
+    `import type { ${base}Events } from "${packageName}";`,
+    "",
+    "const verifier = createVerifier(process.env.WEBHOOK_SECRET!);",
+    `const result = await verifier.verify<${base}Events>(request);`
+  ];
+  return /* @__PURE__ */ new Map([
+    ["package.json", `${JSON.stringify(packageJson, null, 2)}
+`],
+    ["tsconfig.json", `${JSON.stringify(tsconfig, null, 2)}
+`],
+    ["src/index.ts", code],
+    ["README.md", readme({ title, input, model, install: `npm install ${packageName}`, lang: "ts", usage })]
+  ]);
+}
+function pythonPackage({ input, name, title, model, packageName, code }) {
+  const module = pythonModuleName(packageName);
+  const pyproject = [
+    "[build-system]",
+    'requires = ["hatchling"]',
+    'build-backend = "hatchling.build"',
+    "",
+    "[project]",
+    `name = ${JSON.stringify(packageName)}`,
+    `version = ${JSON.stringify(input.version)}`,
+    `description = ${JSON.stringify(`Typed webhooks for ${title}, generated by typedhook`)}`,
+    'readme = "README.md"',
+    'requires-python = ">=3.9"',
+    `dependencies = ['typing_extensions>=4.0; python_version < "3.11"']`,
+    "",
+    "[tool.hatch.build.targets.wheel]",
+    `packages = [${JSON.stringify(`src/${module}`)}]`,
+    ""
+  ].join("\n");
+  const key = firstKey(model);
+  const usage = [
+    `from ${module} import WebhookVerificationError, verify`,
+    "",
+    "try:",
+    "    event = verify(request.body, request.headers, WEBHOOK_SECRET)",
+    "except WebhookVerificationError as error:",
+    "    return Response(error.reason, status=400)",
+    ...model.discriminator ? [`if event[${JSON.stringify(model.discriminator.property)}] == ${JSON.stringify(key)}:`, "    ...  # event is typed for this event"] : []
+  ];
+  return /* @__PURE__ */ new Map([
+    ["pyproject.toml", pyproject],
+    [`src/${module}/__init__.py`, code],
+    [`src/${module}/py.typed`, ""],
+    ["README.md", readme({ title, input, model, install: `pip install ${packageName}`, lang: "python", usage })]
+  ]);
+}
+function goPackage({ input, name, title, model, packageName, code }) {
+  const pkg = goPackageName(name);
+  const usage = [
+    `import ${pkg} "${packageName}"`,
+    "",
+    "func handle(w http.ResponseWriter, r *http.Request) {",
+    "	body, _ := io.ReadAll(r.Body)",
+    model.discriminator ? `	event, err := ${pkg}.Verify(body, r.Header, os.Getenv("WEBHOOK_SECRET"))` : `	err := ${pkg}.VerifySignature(body, r.Header, os.Getenv("WEBHOOK_SECRET"))`,
+    "	if err != nil {",
+    "		http.Error(w, err.Error(), http.StatusBadRequest)",
+    "		return",
+    "	}",
+    ...model.discriminator ? ["	switch event := event.(type) {", `	case *${pkg}.${goTypeHint(model)}:`, "		_ = event // typed for this event", "	}"] : [],
+    "	w.WriteHeader(http.StatusNoContent)",
+    "}"
+  ];
+  return /* @__PURE__ */ new Map([
+    ["go.mod", `module ${packageName}
+
+go 1.21
+`],
+    [`${pkg}.go`, code],
+    ["README.md", readme({ title, input, model, install: `go get ${packageName}`, lang: "go", usage })]
+  ]);
+}
+function readme({
+  title,
+  input,
+  model,
+  install,
+  lang,
+  usage
+}) {
+  const rows = model.events.map((event) => {
+    const description = event.description ?? getDescription(event.payload) ?? "";
+    return `| \`${eventKey(model, event).replaceAll("|", "\\|")}\` | ${oneLine(description)} |`;
+  });
   return [
-    "  | {",
-    `      event: ${JSON.stringify(name)};`,
-    "      subject: string | null;",
-    `      data: ${jsonSchemaToTs(data, { refName, indent: 3 })};`,
-    "    }"
+    `# ${oneLine(title)} webhooks`,
+    "",
+    `Typed payloads and signature verification for the webhooks ${oneLine(title)} sends. Generated by [typedhook](https://typedhook.dev) from \`${input.registry}@${input.version}\`.`,
+    "",
+    "## Install",
+    "",
+    "```sh",
+    install,
+    "```",
+    "",
+    "## Usage",
+    "",
+    `\`\`\`${lang}`,
+    ...usage,
+    "```",
+    "",
+    "Signatures follow [Standard Webhooks](https://www.standardwebhooks.com/). Webhooks can arrive more than once: store the delivery id and skip ids you've seen.",
+    "",
+    "## Events",
+    "",
+    "| Event | Description |",
+    "| --- | --- |",
+    ...rows,
+    ""
   ].join("\n");
 }
-function getPath(value, keys) {
-  let current = value;
-  for (const key of keys) {
-    if (!isRecord(current)) return void 0;
-    current = current[key];
-  }
-  return current;
+function firstKey(model) {
+  const [first] = model.events;
+  return first ? eventKey(model, first) : "event.name";
 }
-function uniqueNames(reserved) {
-  const taken = new Set(reserved);
-  const nextSuffix = /* @__PURE__ */ new Map();
-  function claim(name) {
-    let unique = name;
-    let suffix = nextSuffix.get(name) ?? 2;
-    while (taken.has(unique)) unique = `${name}${suffix++}`;
-    nextSuffix.set(name, suffix);
-    taken.add(unique);
-    return unique;
-  }
-  return { claim };
+function goTypeHint(model) {
+  const [first] = model.events;
+  return first ? goName(first.name, "Event") : "Event";
 }
-function typeName(text) {
-  const name = pascalCase(text);
-  return /^\d/.test(name) ? `_${name}` : name;
+function oneLine(text) {
+  return text.replaceAll(/\s+/g, " ").replaceAll("|", "\\|").trim();
 }
-function pascalCase(text) {
-  return text.split(/[^A-Za-z0-9]+/).filter(Boolean).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join("");
+function documentTitle(document) {
+  const info = isRecord(document) ? document.info : void 0;
+  return isRecord(info) && typeof info.title === "string" && info.title !== "" ? info.title : null;
 }
 
 // src/registry/standard-json-schema.ts
@@ -32263,11 +34264,28 @@ function isStandardJSONSchema(value) {
 
 // src/registry/openapi.ts
 function toOpenAPI(events, info) {
+  const schemas = new Map(Object.keys(events).map((name) => [name, toJsonSchema(name, events[name])]));
+  return buildDocument(schemas, info, (name, data) => {
+    if (!isRecord(data) || typeof data.description !== "string") return { body: envelope(name, data) };
+    const { description, ...rest } = data;
+    return { body: envelope(name, rest), description };
+  });
+}
+function schemasToOpenAPI(payloads, info) {
+  const schemas = new Map(
+    [...payloads].map(([name, schema]) => {
+      if (!isRecord(schema)) throw new Error(`event "${name}": its JSON Schema is not an object`);
+      return [name, schema];
+    })
+  );
+  return buildDocument(schemas, info, (_name, payload) => ({ body: payload }));
+}
+function buildDocument(jsonSchemas, info, wrap) {
   const webhooks = /* @__PURE__ */ new Map();
   const schemas = /* @__PURE__ */ new Map();
   const owners = /* @__PURE__ */ new Map();
-  for (const name of Object.keys(events).sort()) {
-    const hoisted = hoistDefs(name, toJsonSchema(name, events[name]));
+  for (const [name, jsonSchema] of [...jsonSchemas].sort(byName)) {
+    const hoisted = hoistDefs(name, jsonSchema);
     for (const [key, schema] of hoisted.schemas) {
       const owner = owners.get(key);
       if (owner !== void 0) {
@@ -32278,20 +34296,22 @@ function toOpenAPI(events, info) {
       owners.set(key, name);
       schemas.set(key, schema);
     }
-    webhooks.set(name, {
-      post: {
-        operationId: name,
-        requestBody: {
-          required: true,
-          content: { "application/json": { schema: envelope(name, hoisted.data) } }
-        },
-        responses: { "2XX": { description: "Return any 2XX status to acknowledge the event" } }
-      }
-    });
+    const { body, description } = wrap(name, hoisted.data);
+    const operation = {
+      operationId: name,
+      requestBody: { required: true, content: { "application/json": { schema: body } } },
+      responses: { "2XX": { description: "Return any 2XX status to acknowledge the event" } }
+    };
+    if (description !== void 0) operation.description = description;
+    webhooks.set(name, { post: operation });
   }
   const document = { openapi: "3.1.0", info, webhooks: Object.fromEntries(webhooks) };
   if (schemas.size > 0) document.components = { schemas: Object.fromEntries(schemas) };
   return document;
+}
+function byName([a], [b]) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 function toJsonSchema(name, schema) {
   if (!isStandardJSONSchema(schema)) {
@@ -32340,9 +34360,9 @@ function mapRefs(value, mapRef) {
   if (Array.isArray(value)) return value.map((item) => mapRefs(item, mapRef));
   if (!isRecord(value)) return value;
   return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => [
+    Object.entries(value).map(([key, child2]) => [
       key,
-      key === "$ref" && typeof child === "string" ? mapRef(child) : mapRefs(child, mapRef)
+      key === "$ref" && typeof child2 === "string" ? mapRef(child2) : mapRefs(child2, mapRef)
     ])
   );
 }
